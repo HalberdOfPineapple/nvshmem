@@ -382,9 +382,11 @@ void nvshmem_putmem(void *dest, const void *source, size_t bytes, int pe) {
     INFO(NVSHMEM_P2P,
          "[%d] untyped put : (remote)dest %p, (local)source %p, %zu bytes, remote PE %d",
          nvshmemi_state->mype, dest, source, bytes, pe);
-    nvshmemi_prepare_and_post_rma("nvshmem_putmem", NVSHMEMI_OP_PUT, NO_NBI, NO_ASYNC,
-                                  (void *)source, (void *)dest, SRC_STRIDE_CONTIG,
-                                  DEST_STRIDE_CONTIG, bytes, 1, NULL, 0, -1, pe, NOT_A_CUDA_STREAM);
+    nvshmemi_prepare_and_post_rma(
+        "nvshmem_putmem", NVSHMEMI_OP_PUT, NO_NBI, NO_ASYNC,
+        (void *)source, (void *)dest, SRC_STRIDE_CONTIG,
+        DEST_STRIDE_CONTIG, 
+        bytes, 1, NULL, 0, -1, pe, NOT_A_CUDA_STREAM);
 }
 
 void nvshmemx_putmem_on_stream(void *dest, const void *source, size_t bytes, int pe,
@@ -394,9 +396,12 @@ void nvshmemx_putmem_on_stream(void *dest, const void *source, size_t bytes, int
     INFO(NVSHMEM_P2P,
          "[%d] untyped put : (remote)dest %p, (local)source %p, %zu bytes, remote PE %d",
          nvshmemi_state->mype, dest, source, bytes, pe);
-    nvshmemi_prepare_and_post_rma("nvshmemx_putmem_on_stream", NVSHMEMI_OP_PUT, NO_NBI, ASYNC,
-                                  (void *)source, (void *)dest, SRC_STRIDE_CONTIG,
-                                  DEST_STRIDE_CONTIG, bytes, 1, NULL, 0, -1, pe, cstrm);
+    nvshmemi_prepare_and_post_rma(
+        "nvshmemx_putmem_on_stream", NVSHMEMI_OP_PUT, NO_NBI, ASYNC,
+        (void *)source, (void *)dest, SRC_STRIDE_CONTIG,
+        DEST_STRIDE_CONTIG, 
+        bytes, 1, NULL, 0, -1, pe, cstrm
+    );
 }
 
 #define NVSHMEM_TYPE_P(Name, TYPE)                                                            \

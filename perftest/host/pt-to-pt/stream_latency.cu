@@ -85,6 +85,7 @@ int main(int argc, char *argv[]) {
     perf_stats_t *offs_latency_stats = NULL;
     perf_stats_t *ons_latency_stats = NULL;
     cudaStream_t strm = nullptr;
+
     int num_entries;
     int i;
 
@@ -159,8 +160,8 @@ int main(int argc, char *argv[]) {
         }
     }
 
-    num_entries = floor(std::log2((float)max_msg_size)) - floor(std::log2((float)min_msg_size)) + 1;
-    size_array = (uint64_t *)calloc(sizeof(uint64_t), num_entries);
+    num_entries = floor(std::log2((float) max_msg_size)) - floor(std::log2((float) min_msg_size)) + 1;
+    size_array = (uint64_t *) calloc(sizeof(uint64_t), num_entries);
     if (!size_array) {
         status = -1;
         goto finalize;
@@ -185,25 +186,24 @@ int main(int argc, char *argv[]) {
     }
 
     if (use_mmap) {
-        data_d = (char *)allocate_mmap_buffer(max_msg_size, mem_handle_type, use_egm, true);
+        data_d = (char *) allocate_mmap_buffer(max_msg_size, mem_handle_type, use_egm, true);
         DEBUG_PRINT("Allocated mmap buffer\n");
     } else {
-        data_d = (char *)nvshmem_malloc(max_msg_size);
+        data_d = (char *) nvshmem_malloc(max_msg_size);
         DEBUG_PRINT("Allocated nvshmem malloc buffer\n");
         CUDA_CHECK(cudaMemset(data_d, 0, max_msg_size));
     }
 
     if (use_mmap) {
-        data_d_local = (char *)allocate_mmap_buffer(max_msg_size, mem_handle_type, use_egm, true);
+        data_d_local = (char *) allocate_mmap_buffer(max_msg_size, mem_handle_type, use_egm, true);
         DEBUG_PRINT("Allocated mmap buffer\n");
     } else {
-        data_d_local = (char *)nvshmem_malloc(max_msg_size);
+        data_d_local = (char *) nvshmem_malloc(max_msg_size);
         DEBUG_PRINT("Allocated nvshmem malloc buffer\n");
         CUDA_CHECK(cudaMemset(data_d_local, 0, max_msg_size));
     }
 
     CUDA_CHECK(cudaStreamCreateWithFlags(&strm, cudaStreamNonBlocking));
-
     CUDA_CHECK(cudaDeviceSynchronize());
 
     if (mype == 0) {

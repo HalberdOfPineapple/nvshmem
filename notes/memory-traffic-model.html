@@ -1,0 +1,594 @@
+<title>NVSHMEM Memory-Traffic Model</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans+Condensed:wght@500;600;700&family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;1,400&display=swap">
+<style>
+:root {
+  --bg: #F5F6F8;
+  --surface: #FFFFFF;
+  --surface-2: #ECEFF3;
+  --ink: #17202A;
+  --muted: #5A6572;
+  --line: #D5DBE2;
+  --accent: #2B59C3;
+  --accent-soft: #E3EAFA;
+  --p2p: #11806E;
+  --p2p-soft: #DDF2EE;
+  --remote: #B0620B;
+  --remote-soft: #FBEBD8;
+  --type: #7446B5;
+  --code-bg: #EEF1F5;
+  --font-body: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-head: "IBM Plex Sans Condensed", "Arial Narrow", system-ui, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --bg: #0E1318;
+    --surface: #151C23;
+    --surface-2: #1C252F;
+    --ink: #E3E8EE;
+    --muted: #97A2AE;
+    --line: #2B3541;
+    --accent: #8AABFF;
+    --accent-soft: #1D2A48;
+    --p2p: #4FC8B2;
+    --p2p-soft: #123330;
+    --remote: #E8A650;
+    --remote-soft: #3A2A14;
+    --type: #C4A7F4;
+    --code-bg: #111920;
+  }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #0E1318;
+  --surface: #151C23;
+  --surface-2: #1C252F;
+  --ink: #E3E8EE;
+  --muted: #97A2AE;
+  --line: #2B3541;
+  --accent: #8AABFF;
+  --accent-soft: #1D2A48;
+  --p2p: #4FC8B2;
+  --p2p-soft: #123330;
+  --remote: #E8A650;
+  --remote-soft: #3A2A14;
+  --type: #C4A7F4;
+  --code-bg: #111920;
+}
+
+* { box-sizing: border-box; }
+body {
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--font-body);
+  font-size: 16px;
+  line-height: 1.6;
+  padding-inline: 20px;
+  padding-block: 0 64px;
+}
+.layout {
+  max-width: 1180px;
+  margin: 0 auto;
+  display: grid;
+  grid-template-columns: 220px minmax(0, 1fr);
+  gap: 48px;
+}
+@media (max-width: 960px) {
+  .layout { grid-template-columns: minmax(0, 1fr); gap: 0; }
+}
+nav.toc {
+  position: sticky;
+  top: env(safe-area-inset-top, 0px);
+  align-self: start;
+  padding-block: 40px 24px;
+  font-size: 14px;
+}
+nav.toc .label {
+  font-family: var(--font-head);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-size: 12px;
+  color: var(--muted);
+  margin-bottom: 10px;
+}
+nav.toc ol { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; }
+nav.toc a {
+  display: grid;
+  grid-template-columns: 26px 1fr;
+  gap: 4px;
+  padding: 5px 8px;
+  border-radius: 6px;
+  color: var(--ink);
+  text-decoration: none;
+}
+nav.toc a:hover, nav.toc a:focus-visible { background: var(--surface-2); outline: none; }
+nav.toc a .n { font-family: var(--font-mono); color: var(--muted); font-size: 12px; padding-top: 2px; }
+@media (max-width: 960px) {
+  nav.toc { position: static; padding-block: 24px 0; }
+  nav.toc ol { grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); }
+}
+main { min-width: 0; padding-block: 40px 0; }
+.col { max-width: 820px; }
+h1, h2, h3 { font-family: var(--font-head); text-wrap: balance; line-height: 1.15; }
+h1 { font-size: clamp(34px, 5vw, 50px); font-weight: 700; margin: 0 0 14px; letter-spacing: -0.01em; }
+h2 { font-size: 30px; font-weight: 700; margin: 0 0 6px; }
+h3 { font-size: 20px; font-weight: 600; margin: 34px 0 10px; }
+p { margin: 0 0 14px; }
+.lede { font-size: 18px; color: var(--muted); max-width: 64ch; }
+.eyebrow {
+  font-family: var(--font-head);
+  text-transform: uppercase;
+  letter-spacing: 0.09em;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--accent);
+  margin-bottom: 8px;
+}
+.meta { display: flex; flex-wrap: wrap; gap: 8px; margin: 18px 0 0; }
+.chip {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  padding: 3px 9px;
+  border-radius: 999px;
+  background: var(--surface-2);
+  color: var(--muted);
+  border: 1px solid var(--line);
+}
+a { color: var(--accent); }
+code, .mono { font-family: var(--font-mono); font-size: 0.88em; }
+:not(pre) > code {
+  background: var(--code-bg);
+  padding: 1px 5px;
+  border-radius: 4px;
+  overflow-wrap: anywhere;
+}
+section { padding-top: 56px; scroll-margin-top: 16px; }
+section + section { border-top: 1px solid var(--line); margin-top: 56px; }
+.step-head { display: flex; align-items: baseline; gap: 14px; flex-wrap: wrap; }
+.step-num {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--accent);
+  background: var(--accent-soft);
+  padding: 3px 9px;
+  border-radius: 6px;
+}
+.src-line { font-family: var(--font-mono); font-size: 13px; color: var(--muted); margin: 4px 0 18px; }
+pre {
+  background: var(--code-bg);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 14px 16px;
+  overflow-x: auto;
+  font-family: var(--font-mono);
+  font-size: 13px;
+  line-height: 1.55;
+  margin: 0 0 6px;
+}
+pre code { background: none; padding: 0; font-size: inherit; }
+figure.code { margin: 16px 0 22px; }
+figure.code figcaption { font-family: var(--font-mono); font-size: 12px; color: var(--muted); }
+.hljs-keyword, .hljs-built_in, .hljs-meta .hljs-keyword { color: var(--accent); font-weight: 500; }
+.hljs-type { color: var(--type); }
+.hljs-string { color: var(--p2p); }
+.hljs-number, .hljs-literal { color: var(--remote); }
+.hljs-comment { color: var(--muted); font-style: italic; }
+.hljs-meta { color: var(--type); }
+.hljs-title.function_ { font-weight: 600; }
+.chain-wrap {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 16px 18px 6px;
+  margin: 16px 0 24px;
+  overflow-x: auto;
+}
+.chain-wrap > .label {
+  font-family: var(--font-head);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted);
+  margin-bottom: 10px;
+}
+ol.chain, ol.chain ol { list-style: none; margin: 0; padding: 0; }
+ol.chain ol { margin-left: 9px; padding-left: 18px; border-left: 1px solid var(--line); }
+ol.chain li { position: relative; padding: 0 0 12px; min-width: 0; }
+ol.chain ol > li::before {
+  content: "";
+  position: absolute;
+  left: -18px;
+  top: 12px;
+  width: 12px;
+  border-top: 1px solid var(--line);
+}
+.fn { font-family: var(--font-mono); font-size: 13.5px; font-weight: 600; color: var(--ink); }
+.loc { font-family: var(--font-mono); font-size: 12px; color: var(--muted); margin-left: 8px; white-space: nowrap; }
+.what { display: block; font-size: 14.5px; color: var(--muted); line-height: 1.5; max-width: 70ch; }
+li.hot > .fn { color: var(--accent); }
+li.p2p > .fn { color: var(--p2p); }
+li.remote > .fn { color: var(--remote); }
+.tag {
+  font-family: var(--font-head);
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  padding: 1px 7px;
+  border-radius: 4px;
+  margin-left: 6px;
+  vertical-align: 1px;
+}
+.tag.p2p { color: var(--p2p); background: var(--p2p-soft); }
+.tag.remote { color: var(--remote); background: var(--remote-soft); }
+.tag.lazy { color: var(--accent); background: var(--accent-soft); }
+.note { border: 1px solid var(--line); background: var(--surface); border-radius: 10px; padding: 14px 18px; margin: 18px 0 22px; }
+.note .note-title { font-weight: 600; margin-bottom: 4px; }
+.note.key { border-color: var(--accent); background: var(--accent-soft); }
+.note p:last-child { margin-bottom: 0; }
+.table-wrap { overflow-x: auto; margin: 16px 0 24px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); }
+table { border-collapse: collapse; width: 100%; font-size: 14px; }
+th, td { text-align: left; padding: 9px 14px; border-bottom: 1px solid var(--line); vertical-align: top; }
+tr:last-child td { border-bottom: none; }
+th { font-family: var(--font-head); text-transform: uppercase; letter-spacing: 0.06em; font-size: 12px; color: var(--muted); background: var(--surface-2); }
+td.path { font-family: var(--font-mono); font-size: 13px; white-space: nowrap; }
+td.num { font-variant-numeric: tabular-nums; text-align: right; font-family: var(--font-mono); font-size: 13px; color: var(--muted); }
+.program { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr); gap: 20px; margin: 28px 0 8px; align-items: start; }
+@media (max-width: 760px) { .program { grid-template-columns: minmax(0, 1fr); } }
+.steps { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.steps a {
+  display: grid;
+  grid-template-columns: 34px 1fr;
+  gap: 10px;
+  padding: 10px 12px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  text-decoration: none;
+  color: var(--ink);
+}
+.steps a:hover, .steps a:focus-visible { border-color: var(--accent); outline: none; }
+.steps .n { font-family: var(--font-mono); font-weight: 600; color: var(--accent); }
+.steps .t { font-weight: 600; display: block; }
+.steps .d { font-size: 13.5px; color: var(--muted); display: block; line-height: 1.45; }
+.steps .ln { font-family: var(--font-mono); font-size: 12px; color: var(--muted); }
+figure.diagram { margin: 20px 0 26px; }
+figure.diagram .scroll { overflow-x: auto; background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 12px; }
+figure.diagram svg { display: block; width: 100%; min-width: 640px; height: auto; }
+figure.diagram figcaption { font-size: 13.5px; color: var(--muted); margin-top: 8px; }
+svg .box { fill: var(--surface-2); stroke: var(--line); stroke-width: 1.2; }
+svg .box-accent { fill: var(--accent-soft); stroke: var(--accent); stroke-width: 1.2; }
+svg .box-p2p { fill: var(--p2p-soft); stroke: var(--p2p); stroke-width: 1.2; }
+svg .box-remote { fill: var(--remote-soft); stroke: var(--remote); stroke-width: 1.2; }
+svg .box-plain { fill: var(--surface); stroke: var(--line); stroke-width: 1.2; }
+svg .t-head { font-family: var(--font-mono); font-size: 13.5px; font-weight: 600; fill: var(--ink); }
+svg .t-body { font-family: var(--font-body); font-size: 12.5px; fill: var(--muted); }
+svg .t-mono { font-family: var(--font-mono); font-size: 11.5px; fill: var(--muted); }
+svg .t-label { font-family: var(--font-head); font-size: 12px; font-weight: 600; letter-spacing: 0.05em; fill: var(--muted); }
+svg .t-p2p { fill: var(--p2p); }
+svg .t-remote { fill: var(--remote); }
+svg .t-accent { fill: var(--accent); }
+svg .wire { stroke: var(--muted); stroke-width: 1.4; fill: none; }
+svg .wire-p2p { stroke: var(--p2p); stroke-width: 1.8; fill: none; }
+svg .wire-remote { stroke: var(--remote); stroke-width: 1.8; fill: none; }
+svg .dash { stroke-dasharray: 5 4; }
+svg .ah { fill: var(--muted); }
+svg .ah-p2p { fill: var(--p2p); }
+svg .ah-remote { fill: var(--remote); }
+svg .marker { fill: var(--accent); }
+.grid-2 { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; margin: 16px 0 22px; }
+@media (max-width: 700px) { .grid-2 { grid-template-columns: minmax(0, 1fr); } }
+.card { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px; }
+.card h4 { margin: 0 0 6px; font-family: var(--font-head); font-size: 16px; font-weight: 600; }
+.card p { font-size: 14.5px; color: var(--muted); margin: 0; }
+.card.p2p h4 { color: var(--p2p); }
+.card.remote h4 { color: var(--remote); }
+ul.plain { padding-left: 20px; margin: 0 0 14px; }
+ul.plain li { margin-bottom: 6px; }
+footer { margin-top: 64px; padding-top: 20px; border-top: 1px solid var(--line); font-size: 13.5px; color: var(--muted); }
+@media (prefers-reduced-motion: no-preference) { html { scroll-behavior: smooth; } }
+</style>
+<style>
+.gloss { display: grid; grid-template-columns: minmax(120px, 190px) minmax(0, 1fr); gap: 0; }
+.gloss dt, .gloss dd { margin: 0; padding: 9px 12px; border-bottom: 1px solid var(--line); }
+.gloss dt { font-family: var(--font-mono); font-size: 13px; font-weight: 600; color: var(--ink); background: var(--surface-2); }
+.gloss dd { font-size: 14.5px; color: var(--muted); background: var(--surface); }
+@media (max-width: 560px) { .gloss { grid-template-columns: minmax(0, 1fr); } .gloss dt { border-bottom: none; } }
+.gloss-wrap { border: 1px solid var(--line); border-radius: 10px; overflow: hidden; margin: 16px 0 24px; }
+.flag-table td:first-child { font-family: var(--font-mono); font-size: 13px; white-space: nowrap; color: var(--ink); }
+</style>
+<style>
+:root { --host: #7446B5; --host-soft: #EFE7FA; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --host: #C4A7F4; --host-soft: #2A2140; } }
+:root[data-theme="dark"] { --host: #C4A7F4; --host-soft: #2A2140; }
+svg .box-host { fill: var(--host-soft); stroke: var(--host); stroke-width: 1.2; }
+svg .rd { stroke: var(--accent); stroke-width: 2; fill: none; }
+svg .wr { stroke: var(--host); stroke-width: 2; fill: none; }
+svg .ah-accent { fill: var(--accent); }
+svg .ah-host { fill: var(--host); }
+svg .t-host { fill: var(--host); }
+svg .gone { opacity: .3; }
+.prov { font-family: var(--font-head); font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .05em; padding: 1px 6px; border-radius: 4px; margin-left: 4px; white-space: nowrap; }
+.prov.src { color: var(--p2p); background: var(--p2p-soft); }
+.prov.paper { color: var(--accent); background: var(--accent-soft); }
+.prov.nv { color: var(--host); background: var(--host-soft); }
+.prov.inf { color: var(--remote); background: var(--remote-soft); }
+table.mx td, table.mx th { text-align: center; white-space: nowrap; }
+table.mx td:first-child, table.mx th:first-child { text-align: left; }
+table.mx td.z { color: var(--muted); opacity: .6; }
+.flow-n { display: inline-grid; place-items: center; width: 20px; height: 20px; border-radius: 50%; font-family: var(--font-mono); font-size: 11px; font-weight: 600; color: var(--surface); background: var(--accent); }
+.flow-n.w { background: var(--host); }
+</style>
+
+<div class="layout">
+  <nav class="toc" aria-label="Contents">
+    <div class="label">Contents</div>
+    <ol>
+      <li><a href="#short"><span class="n">A</span><span>Short answer</span></a></li>
+      <li><a href="#paper"><span class="n">B</span><span>FabricPerf's model</span></a></li>
+      <li><a href="#fix"><span class="n">C</span><span>What changes, one correction</span></a></li>
+      <li><a href="#counters"><span class="n">D</span><span>Notation and counters</span></a></li>
+      <li><a href="#paths"><span class="n">E</span><span>Traffic per path</span></a></li>
+      <li><a href="#tab2"><span class="n">F</span><span>Table 2, NVSHMEM edition</span></a></li>
+      <li><a href="#cache"><span class="n">G</span><span>Cache behaviour</span></a></li>
+      <li><a href="#coll"><span class="n">H</span><span>Composing collectives</span></a></li>
+      <li><a href="#validate"><span class="n">I</span><span>Checking it on Beta</span></a></li>
+      <li><a href="#limits"><span class="n">J</span><span>Limits and open points</span></a></li>
+    </ol>
+  </nav>
+
+  <main>
+    <header class="col">
+      <div class="eyebrow">Model</div>
+      <h1>NVSHMEM Memory-Traffic Model</h1>
+      <p class="lede">For each NVSHMEM data path: how many bytes each GPU's L2, HBM and links carry per byte of payload, which hardware counter sees each flow, and what cache hit rates to expect. Built in the same style as FabricPerf's model of NCCL, from the NVSHMEM source.</p>
+      <div class="meta">
+        <span class="chip">NVSHMEM 3.9.0.dev0 @ 7bb2e99</span>
+        <span class="chip">FabricPerf, SIGCOMM '26 (notes/papers/26_FabricPerf.pdf)</span>
+        <span class="chip">companion to data-movement-paths.html</span>
+        <span class="chip">not yet measured</span>
+      </div>
+    </header>
+
+    <section id="short" class="col">
+      <div class="eyebrow">Overview A</div>
+      <h2>Short answer</h2>
+      <p>FabricPerf models NCCL's two-sided transfers, which stage data through a <strong>network buffer</strong> on the receiver: five flows per byte (read source, send, arrive in the buffer, read the buffer, write the user destination). NVSHMEM's puts and gets are one-sided and write straight into the destination (section "No separate network buffer" in data-movement-paths.html). Only the first three flows exist:</p>
+      <div class="note key">
+        <div class="note-title">Core model, per byte of payload x (fabric bandwidth)</div>
+        <p>Sender: read the source once (<b>x</b> from L2, and x from HBM if it is not already in L2). Link: <b>x</b> out, plus packet overhead. Receiver: <b>x</b> written into its L2, and eventually <b>x</b> written back to HBM. That is FabricPerf's "SR(DMA)" column (read 1x, write 2x) for <em>every</em> NVSHMEM put path; gets read 1x and write 1x. The paths differ in <em>who</em> issues the traffic (SM, TMA, copy engine, NIC) and therefore in which counter sees it, and in what comes on top: shared-memory staging for TMA, fan-out in the switch for NVLS, and control traffic for the network paths.</p>
+      </div>
+      <p>One correction to the paper's model matters for any memory-semantic fabric: stores from an SM or copy engine to a peer <strong>bypass the sender's L2</strong>, according to NVIDIA's profiler team. The paper models them as cached L2 writes. The byte totals still match, because the paper counts these writes at the L1→crossbar interface, but the "write hit rate 1/2" in its Table 2 is an accounting artefact, not caching (section C).</p>
+    </section>
+
+    <section id="paper" class="col">
+      <div class="eyebrow">Overview B</div>
+      <h2>FabricPerf's model, as published</h2>
+      <p>From §3.3, Fig. 8 and Table 2 of the paper (pp. 647-648). The model takes the measured fabric bandwidth <i>x</i> as input and predicts the memory bandwidth that CUPTI's memory counters should show. Their NCCL kernels use stores ("st-oriented", §2.3):</p>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>#</th><th>Flow (NCCL-style kernel)</th><th>Where</th><th>Bytes</th><th>Paper's L2 behaviour</th></tr></thead>
+          <tbody>
+            <tr><td><span class="flow-n">1</span></td><td>sender reads the local source buffer</td><td>sender</td><td>x</td><td>streaming, 0% hit</td></tr>
+            <tr><td><span class="flow-n w">2</span></td><td>sender writes to the receiver through the fabric</td><td>sender</td><td>x</td><td>"expected to be cached since there is no corresponding local GMEM to be replaced"</td></tr>
+            <tr><td><span class="flow-n w">3</span></td><td>remote writes arrive in the receiver's buffer</td><td>receiver</td><td>x</td><td>network buffer: 100% hit (reused); user buffer: 0%</td></tr>
+            <tr><td><span class="flow-n">4</span></td><td>receiver cores read the network buffer</td><td>receiver</td><td>x</td><td>100% hit</td></tr>
+            <tr><td><span class="flow-n w">5</span></td><td>receiver cores write the user destination</td><td>receiver</td><td>x</td><td>streaming, 0% hit</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p>Summed over both GPUs, SendRecv = read 2x (1+4), write 3x (2+3+5). "DMA-style" buffers remove 4 and 5, giving read 1x, write 2x, and the paper notes this only works for SendRecv/AlltoAll, because reductions need 4 and 5. Their Table 2 (p. 647):</p>
+      <div class="table-wrap">
+        <table class="mx">
+          <thead><tr><th></th><th>SR</th><th>SR (DMA)</th><th>AG</th><th>RS</th></tr></thead>
+          <tbody>
+            <tr><td>Read memBw</td><td>2x</td><td>1x</td><td>(1+1/N)x</td><td>2x</td></tr>
+            <tr><td>Write memBw</td><td>3x</td><td>2x</td><td>3x</td><td>(2+1/N)x</td></tr>
+            <tr><td>L1 behaviour</td><td>bypass</td><td>bypass</td><td>bypass</td><td>bypass</td></tr>
+            <tr><td>LLC read hit</td><td>1/2</td><td>0%</td><td>100%</td><td>1/2</td></tr>
+            <tr><td>LLC write hit</td><td>2/3</td><td>1/2</td><td>2/3</td><td>100%</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p>Measurement (§4.3, pp. 648-649): hit rates are computed byte-wise from crossbar bandwidth (input to L2) versus DRAM bandwidth (output of L2). The crossbar write counter "is measured as the (missed) output of the L1 cache and does not include the external write traffic from the fabric", so flow 3 is added from the application-level receive bandwidth. The reported agreement is 6.86% mean error (Fig. 10). §6.3 finds real L2 hit rates collapse to ~0% at ≥16 channels and ≥350 GB/s on GB200.</p>
+    </section>
+
+    <section id="fix" class="col">
+      <div class="eyebrow">Overview C</div>
+      <h2>What changes for NVSHMEM, and one correction</h2>
+      <figure class="diagram">
+        <div class="scroll">
+        <svg viewBox="0 0 760 300" role="img" aria-labelledby="mt1">
+          <title id="mt1">Two-sided with network buffer versus one-sided put</title>
+          <defs>
+            <marker id="mra" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="ah-accent"/></marker>
+            <marker id="mrh" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="ah-host"/></marker>
+          </defs>
+          <text x="16" y="22" class="t-label">NCCL-STYLE (FABRICPERF FIG. 8A): FIVE FLOWS</text>
+          <rect x="16" y="34" width="110" height="46" rx="6" class="box-plain"/><text x="26" y="54" class="t-head">user SRC</text><text x="26" y="70" class="t-mono">sender HBM</text>
+          <rect x="160" y="34" width="90" height="46" rx="6" class="box-p2p"/><text x="170" y="62" class="t-head">SM</text>
+          <rect x="284" y="34" width="84" height="46" rx="6" class="box"/><text x="292" y="62" class="t-mono">fabric</text>
+          <rect x="402" y="34" width="120" height="46" rx="6" class="box-accent"/><text x="412" y="54" class="t-head">net buffer</text><text x="412" y="70" class="t-mono">receiver</text>
+          <rect x="556" y="34" width="70" height="46" rx="6" class="box-p2p"/><text x="566" y="62" class="t-head">SM</text>
+          <rect x="650" y="34" width="94" height="46" rx="6" class="box-plain"/><text x="660" y="54" class="t-head">user DST</text><text x="660" y="70" class="t-mono">receiver</text>
+          <path d="M126 57 L158 57" class="rd" marker-end="url(#mra)"/><text x="134" y="98" class="t-mono t-accent">1 rd</text>
+          <path d="M250 57 L282 57" class="wr" marker-end="url(#mrh)"/><text x="254" y="98" class="t-mono t-host">2 wr</text>
+          <path d="M368 57 L400 57" class="wr" marker-end="url(#mrh)"/><text x="372" y="98" class="t-mono t-host">3 wr</text>
+          <path d="M522 57 L554 57" class="rd" marker-end="url(#mra)"/><text x="526" y="98" class="t-mono t-accent">4 rd</text>
+          <path d="M626 57 L648 57" class="wr" marker-end="url(#mrh)"/><text x="624" y="98" class="t-mono t-host">5 wr</text>
+          <text x="16" y="124" class="t-body">read 2x, write 3x (both GPUs). Flows 4 and 5 are receiver-side kernel work: poll, reduce, copy out.</text>
+
+          <text x="16" y="170" class="t-label">NVSHMEM PUT (EVERY PUT PATH): THREE FLOWS</text>
+          <rect x="16" y="182" width="110" height="46" rx="6" class="box-plain"/><text x="26" y="202" class="t-head">SRC</text><text x="26" y="218" class="t-mono">sym. heap</text>
+          <rect x="160" y="182" width="108" height="46" rx="6" class="box-p2p"/><text x="170" y="202" class="t-head">issuer</text><text x="170" y="218" class="t-mono">SM/TMA/CE/NIC</text>
+          <rect x="284" y="182" width="84" height="46" rx="6" class="box"/><text x="292" y="210" class="t-mono">fabric</text>
+          <rect x="402" y="182" width="120" height="46" rx="6" class="box-plain"/><text x="412" y="202" class="t-head">DST</text><text x="412" y="218" class="t-mono">peer sym. heap</text>
+          <g class="gone"><rect x="556" y="182" width="70" height="46" rx="6" class="box-p2p"/><text x="566" y="210" class="t-head">SM</text>
+          <rect x="650" y="182" width="94" height="46" rx="6" class="box-plain"/><text x="660" y="210" class="t-head">—</text></g>
+          <path d="M126 205 L158 205" class="rd" marker-end="url(#mra)"/><text x="134" y="246" class="t-mono t-accent">1 rd</text>
+          <path d="M268 205 L282 205" class="wr" marker-end="url(#mrh)"/><text x="254" y="246" class="t-mono t-host">2 wr</text>
+          <path d="M368 205 L400 205" class="wr" marker-end="url(#mrh)"/><text x="372" y="246" class="t-mono t-host">3 wr</text>
+          <text x="556" y="246" class="t-mono">no 4, no 5</text>
+          <text x="16" y="272" class="t-body">read 1x, write 2x. The receiver's SMs do nothing; whatever reads DST later is application traffic,</text>
+          <text x="16" y="290" class="t-body">not communication traffic (it is the consumer kernel's first touch, counted in its own profile).</text>
+        </svg>
+        </div>
+        <figcaption>Blue = reads, purple = writes, numbered as in FabricPerf §3.3. "Issuer" is whichever engine the path uses; section E breaks it down.</figcaption>
+      </figure>
+
+      <h3>The correction: flow 2 never enters the sender's L2</h3>
+      <p>The paper models flow 2 as cached in the sender's L2 (100% write hit), which is where Table 2's "write hit 1/2" for SR (DMA) comes from: flow 2 hit + flow 3 miss. NVIDIA's profiler team states the opposite about the path itself:</p>
+      <div class="note">
+        <p>"SM to NVLINK or copy engine to NVLINK will bypass L2 so <code>nvl{rx,tx}__bytes_packet_{request,response}_*</code> can be used to provide slightly more information." And: "There are not good metrics from the sender side to understand traffic over nvlink." <span class="prov nv">NVIDIA forum</span></p>
+        <p style="font-size:13.5px;color:var(--muted)">NVIDIA developer forum, "NCU L2 metric understanding" (thread 361731), NVIDIA staff reply.</p>
+      </div>
+      <p>This is consistent with the paper's own numbers: their crossbar write counter is L1's output, which includes peer-bound stores before they are routed to NVLink, and flow 2 never reaches DRAM, so byte-wise "crossbar in − DRAM out" makes it look like a hit. The total <em>bytes</em> are right; the interpretation is not. It matters for three reasons:</p>
+      <ul class="plain">
+        <li>A sender-side L2 counter (<code>lts__*</code>) will <strong>not</strong> show flow 2. Only the L1→crossbar counter and the NVLink transmit counter do.</li>
+        <li>Flow 2 cannot evict anything from the sender's L2, so it does not compete with the source read (flow 1) for cache space.</li>
+        <li>For copy-engine traffic there is no L1→crossbar counter at all (no SM involved), so flow 2 is visible only as NVLink transmit bytes.</li>
+      </ul>
+      <p>Everything else in this page keeps FabricPerf's convention so the numbers can be compared: memBw summed over both GPUs, flow 2 counted where it leaves the SM.</p>
+    </section>
+
+    <section id="counters" class="col">
+      <div class="eyebrow">Overview D</div>
+      <h2>Notation and which counter sees what</h2>
+      <p><i>x</i> = payload bytes (or bytes/s). <i>N</i> = PEs in a team. <i>h</i> ≥ 1 = link packet overhead factor (headers, flow control; not modelled, measure it). All multiples are exact unless marked. GPU A issues, GPU B is the peer.</p>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Counter (Nsight Compute style)</th><th>What it counts</th><th>Sees</th></tr></thead>
+          <tbody>
+            <tr><td class="path">l1tex__m_l1tex2xbar_write_bytes</td><td>SM stores leaving L1 (write-through), any destination</td><td>flow 2 for SM paths (FabricPerf's crossbar write)</td></tr>
+            <tr><td class="path">lts__t_sectors_srcnode_gpc_*</td><td>L2 accesses from SMs (sector = 32 B)</td><td>flow 1 for SM and TMA paths; local writes</td></tr>
+            <tr><td class="path">lts__t_sectors_srcnode_hub_*</td><td>L2 accesses from copy engines, front end, host/PCIe/C2C, and remote targets over NVLink or PCIe</td><td>flow 1 for CE and NIC; <b>flow 3 on the receiver</b> (NVLink and NIC arrivals)</td></tr>
+            <tr><td class="path">dram__bytes_read / _write</td><td>HBM traffic = L2 misses and write-backs</td><td>flow 1 miss; flow 3 write-back</td></tr>
+            <tr><td class="path">nvltx__bytes / nvlrx__bytes</td><td>NVLink transmit / receive, including packet overhead</td><td>flow 2 (A tx), flow 3 (B rx); requests and responses of gets</td></tr>
+            <tr><td class="path">pcie__read_bytes / _write_bytes</td><td>PCIe traffic at the GPU</td><td>NIC reads of the source and NIC writes at the receiver</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p>Counter names follow Nsight Compute's scheme and the NVIDIA forum reply above (srcnode gpc / fbp / hub; "srcnode_fbp on GH100 and GB100 should equal srcunit_ltcfabric"). Exact names differ per chip: check with <code>ncu --query-metrics --chip gb100</code> before relying on them <span class="prov inf">inference</span>.</p>
+    </section>
+
+    <section id="paths" class="col">
+      <div class="eyebrow">Overview E</div>
+      <h2>Traffic per path</h2>
+      <p>One row per path, per byte of payload. "A L2 rd" is the source read (flow 1), its HBM part assumes a cold source (section G). "B L2 wr" is flow 3. The last column lists what comes on top of the three flows.</p>
+      <div class="table-wrap">
+        <table class="mx">
+          <thead><tr><th>Path (from data-movement-paths.html)</th><th>Issuer</th><th>A L2 rd</th><th>A HBM rd</th><th>A L1→xbar wr</th><th>link A→B</th><th>B L2 wr</th><th>B HBM wr</th><th>Extra</th></tr></thead>
+          <tbody>
+            <tr><td>1 put, source in global memory</td><td>SM (gpc)</td><td>x</td><td>x</td><td>x</td><td>hx NVLink</td><td>x (hub)</td><td>x</td><td>L1 may allocate source (0% reuse)</td></tr>
+            <tr><td>1 put, source in shared memory</td><td>SM (gpc)</td><td class="z">0</td><td class="z">0</td><td>x</td><td>hx NVLink</td><td>x (hub)</td><td>x</td><td>SRAM read x</td></tr>
+            <tr><td>1 get (load from peer)</td><td>SM (gpc)</td><td class="z">0</td><td class="z">0</td><td>x (local dest store)</td><td>requests A→B, hx B→A</td><td class="z">0</td><td class="z">0</td><td>B L2 rd x (hub), B HBM rd x if cold; A L2 wr x, A HBM wr x</td></tr>
+            <tr><td>2A TMA put from shared memory</td><td>TMA (gpc)</td><td class="z">0</td><td class="z">0</td><td>x †</td><td>hx NVLink</td><td>x (hub)</td><td>x</td><td>SRAM read x; no registers, no L1</td></tr>
+            <tr><td>2B TMA put, staged</td><td>TMA (gpc)</td><td>x</td><td>x</td><td>x †</td><td>hx NVLink</td><td>x (hub)</td><td>x</td><td>SRAM write x + read x</td></tr>
+            <tr><td>2C TMA get into shared memory</td><td>TMA (gpc)</td><td class="z">0</td><td class="z">0</td><td class="z">0</td><td>requests A→B, hx B→A</td><td class="z">0</td><td class="z">0</td><td>B L2 rd x (hub); SRAM write x at A</td></tr>
+            <tr><td>3 NVLS multimem.st, team of N</td><td>SM (gpc)</td><td>x</td><td>x</td><td>x</td><td>hx A→switch; switch → N members</td><td>x at <em>each</em> member incl. A</td><td>x each</td><td>system-wide write Nx from one send</td></tr>
+            <tr><td>3 NVLS multimem.ld_reduce</td><td>SM (gpc)</td><td>x (own copy, hub)</td><td>x if cold</td><td class="z">0</td><td>request out, hx result in</td><td class="z">0</td><td class="z">0</td><td>L2 rd x at each of N members; A writes result x</td></tr>
+            <tr><td>4 copy engine, push</td><td>CE (hub)</td><td>x (hub)</td><td>x</td><td class="z">0 ‡</td><td>hx NVLink</td><td>x (hub)</td><td>x</td><td>command buffer ~100 B per copy</td></tr>
+            <tr><td>4 copy engine, pull</td><td>CE (hub)</td><td class="z">0</td><td class="z">0</td><td class="z">0</td><td>requests, hx B→A</td><td class="z">0</td><td class="z">0</td><td>B L2 rd x; A L2 wr x (hub). Which GPU's CE runs it: unknown</td></tr>
+            <tr><td>5 proxy + IBRC</td><td>NIC (hub)</td><td>x (hub)</td><td>x</td><td class="z">0</td><td>hx PCIe + IB, 0 NVLink</td><td>x (hub)</td><td>x</td><td>32 B request per op to host memory; completion counters</td></tr>
+            <tr><td>6 IBGDA</td><td>NIC (hub)</td><td>x (hub)</td><td>x</td><td>WQE bytes</td><td>hx PCIe + IB, 0 NVLink</td><td>x (hub)</td><td>x</td><td>WQE + doorbell record write, WQE read by NIC, CQE write, CQ polling reads</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p style="font-size:14px;color:var(--muted)">† Whether TMA stores count in the L1→crossbar counter is not documented; TMA sits beside L1 and issues to the crossbar directly <span class="prov inf">inference</span>. ‡ Copy-engine flow 2 bypasses L2 (NVIDIA quote in C) and has no SM counter: only <code>nvltx__bytes</code> sees it.</p>
+
+      <h3>Where each row comes from</h3>
+      <ul class="plain">
+        <li><strong>1, 2A–2C:</strong> the instruction sequences traced in data-movement-paths.html paths 1–2 (<code>nvshmemi_memcpy_threadgroup</code>, <code>nvshmemi_memcpy_tma_*</code>) <span class="prov src">source</span>. Staged TMA (2B) goes HBM → L2 → shared memory → NVLink; the extra hop is inside the SM's SRAM, so it adds no L2 or HBM traffic but uses shared-memory bandwidth twice.</li>
+        <li><strong>3:</strong> <code>multimem.st</code> / <code>multimem.ld_reduce</code> in collectives (common:222-325, coll/reduce.cuh:160-215) <span class="prov src">source</span>; one packet out, N copies from the switch <span class="prov inf">hardware behaviour, public NVLS descriptions</span>.</li>
+        <li><strong>4:</strong> <code>cudaMemcpyAsync</code> (putget.cpp:49-148) <span class="prov src">source</span>; the command-buffer size is estimated from the open driver's method sequence (uvm_turing_ce.c:248-309, ~10 32-bit methods plus a semaphore release) <span class="prov inf">inference</span>.</li>
+        <li><strong>5, 6:</strong> the heap is registered with the NIC, so there is no staging copy (transport_ib_common.cpp:418-520) <span class="prov src">source</span>. Request size 32 B (<code>PROXY_DMA_REQ_BYTES</code>, transport_constants.h:40) <span class="prov src">source</span>.</li>
+      </ul>
+      <h3>Control traffic grows with time, not bytes</h3>
+      <p>Everything above scales with <i>x</i>. Polling does not: a thread in <code>nvshmem_wait_until</code> (volatile loads, wait_until_apis.cuh:37-48), an IBGDA thread polling its completion queue, or the proxy thread polling its ring generate L2 read requests for as long as they wait. On the receiver that is the only SM-side traffic a one-sided transfer causes, and it can outnumber payload sectors for small messages <span class="prov inf">inference</span>. A model of "communication traffic" therefore needs a time term: polls/s × sectors per poll.</p>
+    </section>
+
+    <section id="tab2" class="col">
+      <div class="eyebrow">Overview F</div>
+      <h2>Table 2, NVSHMEM edition</h2>
+      <p>The same summary as the paper's Table 2, in its accounting (memBw summed over both GPUs; writes counted where they leave the SM or copy engine, plus fabric arrivals). NCCL's SR column is repeated for comparison. Hit rates assume a cold, streaming source and a destination written back before anyone reads it, as the paper assumes; section G drops those assumptions.</p>
+      <div class="table-wrap">
+        <table class="mx">
+          <thead><tr><th></th><th>NCCL SR (paper)</th><th>1 put / 2B / 4 push / 5 / 6</th><th>1 put or 2A, smem src</th><th>1 get / 4 pull</th><th>2C get → smem</th><th>3 NVLS store, N members</th></tr></thead>
+          <tbody>
+            <tr><td>Read memBw</td><td>2x</td><td>1x</td><td>0</td><td>1x</td><td>1x</td><td>1x</td></tr>
+            <tr><td>Write memBw</td><td>3x</td><td>2x</td><td>2x</td><td>1x</td><td>0 (SRAM only)</td><td>(1+N)x</td></tr>
+            <tr><td>L2 on sender for flow 2</td><td>"cached"</td><td>bypassed</td><td>bypassed</td><td>—</td><td>—</td><td>bypassed</td></tr>
+            <tr><td>L1</td><td>bypass</td><td>source may allocate, never reused (SM); not used (TMA, CE, NIC)</td><td>not used</td><td>SM get: see note</td><td>not used</td><td>source may allocate</td></tr>
+            <tr><td>LLC read hit</td><td>1/2</td><td>0%</td><td>—</td><td>0%</td><td>0%</td><td>0%</td></tr>
+            <tr><td>LLC write hit (byte-wise, paper's method)</td><td>2/3</td><td>1/2 *</td><td>1/2 *</td><td>0%</td><td>—</td><td>1/(1+N) *</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p style="font-size:14px;color:var(--muted)">* Only because flow 2 appears in the crossbar count but never in DRAM, which the paper's method reads as a hit (section C). With flow 2 excluded, the true L2 write hit is 0% in this streaming case. For NVLS, "Write" counts one send plus N arrivals. For gets, the response lands in registers (SM get) or shared memory (2C), not in memory; the only memory write is the requester's local store (SM get) or the copy engine's local write (pull).</p>
+      <p>The headline for any one-sided, zero-copy fabric API: <strong>one read and two writes per byte, instead of two and three</strong>, i.e. 40% less memory traffic than a two-sided, buffered exchange for plain transfers. It holds only for transfers that need no receiver processing; a reduction must still read and write at the receiver (section H).</p>
+    </section>
+
+    <section id="cache" class="col">
+      <div class="eyebrow">Overview G</div>
+      <h2>Cache behaviour: two regimes, not one</h2>
+      <p>The paper assumes user buffers are streaming (0% hit) and network buffers are reused (100%). NVSHMEM has no network buffer, so its hit rates depend on how the transfer sits in the application:</p>
+      <div class="grid-2">
+        <div class="card"><h4>Standalone transfer (benchmarks, paper's case)</h4><p>Source cold: flow 1 hit 0%, HBM read x. Destination written into B's L2 and written back when evicted: B HBM write x. Consumer later reads from HBM. Matches Table 2.</p></div>
+        <div class="card"><h4>Fused producer → put → consumer (typical NVSHMEM use)</h4><p>The source was just written by the same kernel, so flow 1 hits in A's L2 (HBM read ≈ 0) if the working set fits. The consumer on B reads soon after arrival, so its reads hit B's L2 and B's HBM write-back may be deferred. Communication traffic then approaches: A L2 read x, link x, B L2 write x, with little HBM traffic.</p></div>
+      </div>
+      <p>Which regime applies is set by working-set size against L2 capacity (<code>cudaDevAttrL2CacheSize</code>), and by the time between arrival and consumption against the time other traffic takes to evict the lines. The paper's §6.3 result, hit rates collapsing at high bandwidth because buffers are evicted, is the second condition failing. Their fix (PTX <code>.L2::evict_first</code> / <code>evict_last</code> hints) applies to SM-issued accesses only; copy-engine and NIC traffic carry no per-access hint.</p>
+      <p><strong>L1.</strong> The paper's "network data should bypass L1" reads as a hit-rate rule. In NVSHMEM the L1 question arises only for SM-issued accesses. Flow 1 may allocate in L1 but is read once. Flow 2 is a write-through store. Flow 3 never touches any L1 (it arrives at L2). Reuse by the consumer is the application's business. The only place L1 <em>must</em> be bypassed is polling, for correctness (volatile / acquire loads). See data-movement-paths.html, "Memory parts".</p>
+      <p><strong>Two L2 partitions.</strong> GH100 and GB100 split L2 into two partitions joined by an internal fabric ("ltcfabric"); an access homed in the far partition is seen by both. This can inflate raw <code>lts__</code> totals relative to the model, and the model has no term for it <span class="prov nv">NVIDIA forum</span> <span class="prov inf">size of the effect unknown</span>.</p>
+    </section>
+
+    <section id="coll" class="col">
+      <div class="eyebrow">Overview H</div>
+      <h2>Composing collectives</h2>
+      <p>NVSHMEM collectives are built from these paths, so their traffic is a sum of rows from section E. Two examples show the rule and where one-sided loses its advantage.</p>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Operation (message m per PE, N PEs)</th><th>Built from</th><th>Per sending PE</th><th>Per receiving PE</th></tr></thead>
+          <tbody>
+            <tr><td>Broadcast by unicast puts (path 1/2)</td><td>N−1 puts of m</td><td>L2 read (N−1)m (first read from HBM, the rest L2 hits if m fits), link out (N−1)hm</td><td>L2 write m</td></tr>
+            <tr><td>Broadcast by NVLS store (path 3)</td><td>one multimem.st of m</td><td>L2 read m, link out hm</td><td>L2 write m (including the root)</td></tr>
+            <tr><td>Reduction step (any path)</td><td>put, then receiver reads its input and the arrival, writes the sum</td><td>as a put</td><td>arrival write m, then read 2m, write m: FabricPerf's flows 4–5 return</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p>This is how the paper's "DMA-style only applies to SendRecv and AlltoAll" shows up in a one-sided library: zero-copy removes the receiver's copy, not its computation. NVLS <code>ld_reduce</code> is the exception that moves the reduction into the switch (section E, row 3). The per-algorithm counts depend on which algorithm NVSHMEM picks per size and team, which is not traced here.</p>
+    </section>
+
+    <section id="validate" class="col">
+      <div class="eyebrow">Overview I</div>
+      <h2>Checking the model on Beta</h2>
+      <p>Not yet run. Plan, per path, compare measured counters with section E for a sweep of sizes:</p>
+      <ul class="plain">
+        <li><strong>Path 1 / 2:</strong> <code>perftest/device/pt-to-pt/shmem_put_bw</code> with <code>NVSHMEM_TMA_POLICY=DISABLE</code> vs <code>ENABLE</code> (the <code>--use_smem</code> default is 1). On the sender kernel, expect <code>l1tex__m_l1tex2xbar_write_bytes ≈ x</code>, <code>lts__t_sectors_srcnode_gpc_op_read × 32 ≈ x</code>, and <code>lts__*_op_write</code> near 0 for peer stores (the correction in section C).</li>
+        <li><strong>Path 4:</strong> <code>perftest/host/pt-to-pt/stream_latency</code>. Expect L2 reads under <code>srcnode_hub</code> on the sender and no SM counters.</li>
+        <li><strong>Path 5:</strong> the same put test across two nodes (<code>NVSHMEM_DISABLE_MNNVL=1</code>). Expect NVLink ≈ 0 and PCIe ≈ hx.</li>
+        <li><strong>Receiver side:</strong> in a one-sided transfer the receiver runs no kernel, so kernel-scoped profiling (ncu, CUPTI per-kernel) has nothing to attach to. That is gap 11 in observability-gaps-memory-semantic-fabrics.md. Use device-wide sampling instead: Nsight Systems GPU metrics, CUPTI range or PM sampling across the run, or DCGM profiling fields for NVLink and DRAM. The paper notes CUPTI inter-node hangs for LLC metrics on NVL16 (p. 652, footnote 3).</li>
+      </ul>
+      <p>Measuring <i>h</i> (link overhead) is a by-product: nvltx bytes ÷ payload bytes for large puts.</p>
+    </section>
+
+    <section id="limits" class="col">
+      <div class="eyebrow">Overview J</div>
+      <h2>Limits and open points</h2>
+      <ul class="plain">
+        <li><strong>Provenance.</strong> Instruction sequences, buffers and registration are from the NVSHMEM source. Hardware routing (L2 bypass for peer stores, hub attribution, ltcfabric) is from NVIDIA forum replies and public descriptions, not a specification. Multiples involving TMA counters, NVLS replication and copy-engine command size are inferences.</li>
+        <li><strong>Partial-sector writes.</strong> Signals and scalar puts write 8 bytes into a 32-byte sector. Whether L2 must read-fill such a sector from HBM is not modelled.</li>
+        <li><strong>Pulls.</strong> Which GPU's copy engine executes a pull is unknown (stream-latency walkthrough, C2); the byte totals do not depend on it, the per-GPU attribution does.</li>
+        <li><strong>General lesson for memory-semantic fabrics.</strong> For zero-copy, one-sided transfers the traffic model is fixed by three flows. What varies, and what a model or a monitor must capture, is <em>who</em> issues them (visible only through different counters), control traffic that scales with waiting time, and cache residency, which depends on the application rather than the protocol.</li>
+      </ul>
+    </section>
+
+    <footer class="col">
+      Built 2026-09-30 from FabricPerf (Huang &amp; Wu, SIGCOMM '26, §2.3, §3.3, §4.3, §6.3, Table 2), the NVSHMEM source (devel @ 7bb2e99), and NVIDIA developer-forum replies on Nsight Compute L2 metrics. Nothing on this page has been measured yet. Companion pages: <code>data-movement-paths.html</code>, <code>stream-latency-walkthrough.html</code>, <code>observability-gaps-memory-semantic-fabrics.md</code>.
+    </footer>
+  </main>
+</div>

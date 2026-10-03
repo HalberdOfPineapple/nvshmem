@@ -25,7 +25,7 @@ int main(void) {
     cudaSetDevice(mype_node);
     cudaStreamCreate(&stream);
 
-    int *destination = (int *)nvshmem_malloc(sizeof(int));
+    int *destination = (int*) nvshmem_malloc(sizeof(int));
 
     simple_shift<<<1, 1, 0, stream>>>(destination);
     nvshmemx_barrier_all_on_stream(stream);

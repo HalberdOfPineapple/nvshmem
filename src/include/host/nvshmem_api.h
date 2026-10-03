@@ -45,7 +45,8 @@ int nvshmemx_init_status();
 static inline void nvshmem_init() {
     int status = 0, requested = NVSHMEM_THREAD_SERIALIZED, provided;
     nvshmemi_version_t app_nvshmem_version = {
-        NVSHMEM_VENDOR_MAJOR_VERSION, NVSHMEM_VENDOR_MINOR_VERSION, NVSHMEM_VENDOR_PATCH_VERSION};
+        NVSHMEM_VENDOR_MAJOR_VERSION, NVSHMEM_VENDOR_MINOR_VERSION, NVSHMEM_VENDOR_PATCH_VERSION
+    };
     status = nvshmemi_init_thread(requested, &provided, 0, NULL, app_nvshmem_version);
     nvshmemi_check_init_status(status);
 }

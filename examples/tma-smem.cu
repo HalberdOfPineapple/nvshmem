@@ -64,7 +64,10 @@ __global__ void tma_smem_put_kernel(int *recv_data, int num_elems, int mype, int
 
     /* Step 4: Put from shared memory to remote PE's global memory */
     int peer = (mype + 1) % npes;
-    nvshmemx_putmem_nbi_block(recv_data, payload, (size_t)num_elems * sizeof(int), peer);
+    nvshmemx_putmem_nbi_block(
+        recv_data, payload, (size_t)num_elems * sizeof(int), peer
+    );
+
     if (!tid) {
         nvshmem_quiet();
     }
@@ -107,7 +110,7 @@ int main(int c, char *v[]) {
     printf("[PE %d] NVSHMEM recommended shared memory: %d bytes\n", mype, smem_size);
 
     /* Allocate symmetric memory for receive buffer */
-    recv_data = (int *)nvshmem_malloc(sizeof(int) * NUM_ELEMS);
+    recv_data = (int*) nvshmem_malloc(sizeof(int) * NUM_ELEMS);
     if (!recv_data) {
         fprintf(stderr, "[PE %d] nvshmem_malloc failed for %zu bytes\n", mype,
                 sizeof(int) * NUM_ELEMS);

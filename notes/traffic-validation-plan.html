@@ -1,0 +1,532 @@
+<title>Validating GPU Memory Traffic</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans+Condensed:wght@500;600;700&family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;1,400&display=swap">
+<style>
+:root {
+  --bg: #F5F6F8;
+  --surface: #FFFFFF;
+  --surface-2: #ECEFF3;
+  --ink: #17202A;
+  --muted: #5A6572;
+  --line: #D5DBE2;
+  --accent: #2B59C3;
+  --accent-soft: #E3EAFA;
+  --p2p: #11806E;
+  --p2p-soft: #DDF2EE;
+  --remote: #B0620B;
+  --remote-soft: #FBEBD8;
+  --type: #7446B5;
+  --code-bg: #EEF1F5;
+  --font-body: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-head: "IBM Plex Sans Condensed", "Arial Narrow", system-ui, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --bg: #0E1318;
+    --surface: #151C23;
+    --surface-2: #1C252F;
+    --ink: #E3E8EE;
+    --muted: #97A2AE;
+    --line: #2B3541;
+    --accent: #8AABFF;
+    --accent-soft: #1D2A48;
+    --p2p: #4FC8B2;
+    --p2p-soft: #123330;
+    --remote: #E8A650;
+    --remote-soft: #3A2A14;
+    --type: #C4A7F4;
+    --code-bg: #111920;
+  }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #0E1318;
+  --surface: #151C23;
+  --surface-2: #1C252F;
+  --ink: #E3E8EE;
+  --muted: #97A2AE;
+  --line: #2B3541;
+  --accent: #8AABFF;
+  --accent-soft: #1D2A48;
+  --p2p: #4FC8B2;
+  --p2p-soft: #123330;
+  --remote: #E8A650;
+  --remote-soft: #3A2A14;
+  --type: #C4A7F4;
+  --code-bg: #111920;
+}
+
+* { box-sizing: border-box; }
+body {
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--font-body);
+  font-size: 16px;
+  line-height: 1.6;
+  padding-inline: 20px;
+  padding-block: 0 64px;
+}
+.layout {
+  max-width: 1180px;
+  margin: 0 auto;
+  display: grid;
+  grid-template-columns: 220px minmax(0, 1fr);
+  gap: 48px;
+}
+@media (max-width: 960px) {
+  .layout { grid-template-columns: minmax(0, 1fr); gap: 0; }
+}
+nav.toc {
+  position: sticky;
+  top: env(safe-area-inset-top, 0px);
+  align-self: start;
+  padding-block: 40px 24px;
+  font-size: 14px;
+}
+nav.toc .label {
+  font-family: var(--font-head);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-size: 12px;
+  color: var(--muted);
+  margin-bottom: 10px;
+}
+nav.toc ol { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; }
+nav.toc a {
+  display: grid;
+  grid-template-columns: 26px 1fr;
+  gap: 4px;
+  padding: 5px 8px;
+  border-radius: 6px;
+  color: var(--ink);
+  text-decoration: none;
+}
+nav.toc a:hover, nav.toc a:focus-visible { background: var(--surface-2); outline: none; }
+nav.toc a .n { font-family: var(--font-mono); color: var(--muted); font-size: 12px; padding-top: 2px; }
+@media (max-width: 960px) {
+  nav.toc { position: static; padding-block: 24px 0; }
+  nav.toc ol { grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); }
+}
+main { min-width: 0; padding-block: 40px 0; }
+.col { max-width: 820px; }
+h1, h2, h3 { font-family: var(--font-head); text-wrap: balance; line-height: 1.15; }
+h1 { font-size: clamp(34px, 5vw, 50px); font-weight: 700; margin: 0 0 14px; letter-spacing: -0.01em; }
+h2 { font-size: 30px; font-weight: 700; margin: 0 0 6px; }
+h3 { font-size: 20px; font-weight: 600; margin: 34px 0 10px; }
+p { margin: 0 0 14px; }
+.lede { font-size: 18px; color: var(--muted); max-width: 64ch; }
+.eyebrow {
+  font-family: var(--font-head);
+  text-transform: uppercase;
+  letter-spacing: 0.09em;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--accent);
+  margin-bottom: 8px;
+}
+.meta { display: flex; flex-wrap: wrap; gap: 8px; margin: 18px 0 0; }
+.chip {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  padding: 3px 9px;
+  border-radius: 999px;
+  background: var(--surface-2);
+  color: var(--muted);
+  border: 1px solid var(--line);
+}
+a { color: var(--accent); }
+code, .mono { font-family: var(--font-mono); font-size: 0.88em; }
+:not(pre) > code {
+  background: var(--code-bg);
+  padding: 1px 5px;
+  border-radius: 4px;
+  overflow-wrap: anywhere;
+}
+section { padding-top: 56px; scroll-margin-top: 16px; }
+section + section { border-top: 1px solid var(--line); margin-top: 56px; }
+.step-head { display: flex; align-items: baseline; gap: 14px; flex-wrap: wrap; }
+.step-num {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--accent);
+  background: var(--accent-soft);
+  padding: 3px 9px;
+  border-radius: 6px;
+}
+.src-line { font-family: var(--font-mono); font-size: 13px; color: var(--muted); margin: 4px 0 18px; }
+pre {
+  background: var(--code-bg);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 14px 16px;
+  overflow-x: auto;
+  font-family: var(--font-mono);
+  font-size: 13px;
+  line-height: 1.55;
+  margin: 0 0 6px;
+}
+pre code { background: none; padding: 0; font-size: inherit; }
+figure.code { margin: 16px 0 22px; }
+figure.code figcaption { font-family: var(--font-mono); font-size: 12px; color: var(--muted); }
+.hljs-keyword, .hljs-built_in, .hljs-meta .hljs-keyword { color: var(--accent); font-weight: 500; }
+.hljs-type { color: var(--type); }
+.hljs-string { color: var(--p2p); }
+.hljs-number, .hljs-literal { color: var(--remote); }
+.hljs-comment { color: var(--muted); font-style: italic; }
+.hljs-meta { color: var(--type); }
+.hljs-title.function_ { font-weight: 600; }
+.chain-wrap {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 16px 18px 6px;
+  margin: 16px 0 24px;
+  overflow-x: auto;
+}
+.chain-wrap > .label {
+  font-family: var(--font-head);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted);
+  margin-bottom: 10px;
+}
+ol.chain, ol.chain ol { list-style: none; margin: 0; padding: 0; }
+ol.chain ol { margin-left: 9px; padding-left: 18px; border-left: 1px solid var(--line); }
+ol.chain li { position: relative; padding: 0 0 12px; min-width: 0; }
+ol.chain ol > li::before {
+  content: "";
+  position: absolute;
+  left: -18px;
+  top: 12px;
+  width: 12px;
+  border-top: 1px solid var(--line);
+}
+.fn { font-family: var(--font-mono); font-size: 13.5px; font-weight: 600; color: var(--ink); }
+.loc { font-family: var(--font-mono); font-size: 12px; color: var(--muted); margin-left: 8px; white-space: nowrap; }
+.what { display: block; font-size: 14.5px; color: var(--muted); line-height: 1.5; max-width: 70ch; }
+li.hot > .fn { color: var(--accent); }
+li.p2p > .fn { color: var(--p2p); }
+li.remote > .fn { color: var(--remote); }
+.tag {
+  font-family: var(--font-head);
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  padding: 1px 7px;
+  border-radius: 4px;
+  margin-left: 6px;
+  vertical-align: 1px;
+}
+.tag.p2p { color: var(--p2p); background: var(--p2p-soft); }
+.tag.remote { color: var(--remote); background: var(--remote-soft); }
+.tag.lazy { color: var(--accent); background: var(--accent-soft); }
+.note { border: 1px solid var(--line); background: var(--surface); border-radius: 10px; padding: 14px 18px; margin: 18px 0 22px; }
+.note .note-title { font-weight: 600; margin-bottom: 4px; }
+.note.key { border-color: var(--accent); background: var(--accent-soft); }
+.note p:last-child { margin-bottom: 0; }
+.table-wrap { overflow-x: auto; margin: 16px 0 24px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); }
+table { border-collapse: collapse; width: 100%; font-size: 14px; }
+th, td { text-align: left; padding: 9px 14px; border-bottom: 1px solid var(--line); vertical-align: top; }
+tr:last-child td { border-bottom: none; }
+th { font-family: var(--font-head); text-transform: uppercase; letter-spacing: 0.06em; font-size: 12px; color: var(--muted); background: var(--surface-2); }
+td.path { font-family: var(--font-mono); font-size: 13px; white-space: nowrap; }
+td.num { font-variant-numeric: tabular-nums; text-align: right; font-family: var(--font-mono); font-size: 13px; color: var(--muted); }
+.program { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr); gap: 20px; margin: 28px 0 8px; align-items: start; }
+@media (max-width: 760px) { .program { grid-template-columns: minmax(0, 1fr); } }
+.steps { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.steps a {
+  display: grid;
+  grid-template-columns: 34px 1fr;
+  gap: 10px;
+  padding: 10px 12px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  text-decoration: none;
+  color: var(--ink);
+}
+.steps a:hover, .steps a:focus-visible { border-color: var(--accent); outline: none; }
+.steps .n { font-family: var(--font-mono); font-weight: 600; color: var(--accent); }
+.steps .t { font-weight: 600; display: block; }
+.steps .d { font-size: 13.5px; color: var(--muted); display: block; line-height: 1.45; }
+.steps .ln { font-family: var(--font-mono); font-size: 12px; color: var(--muted); }
+figure.diagram { margin: 20px 0 26px; }
+figure.diagram .scroll { overflow-x: auto; background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 12px; }
+figure.diagram svg { display: block; width: 100%; min-width: 640px; height: auto; }
+figure.diagram figcaption { font-size: 13.5px; color: var(--muted); margin-top: 8px; }
+svg .box { fill: var(--surface-2); stroke: var(--line); stroke-width: 1.2; }
+svg .box-accent { fill: var(--accent-soft); stroke: var(--accent); stroke-width: 1.2; }
+svg .box-p2p { fill: var(--p2p-soft); stroke: var(--p2p); stroke-width: 1.2; }
+svg .box-remote { fill: var(--remote-soft); stroke: var(--remote); stroke-width: 1.2; }
+svg .box-plain { fill: var(--surface); stroke: var(--line); stroke-width: 1.2; }
+svg .t-head { font-family: var(--font-mono); font-size: 13.5px; font-weight: 600; fill: var(--ink); }
+svg .t-body { font-family: var(--font-body); font-size: 12.5px; fill: var(--muted); }
+svg .t-mono { font-family: var(--font-mono); font-size: 11.5px; fill: var(--muted); }
+svg .t-label { font-family: var(--font-head); font-size: 12px; font-weight: 600; letter-spacing: 0.05em; fill: var(--muted); }
+svg .t-p2p { fill: var(--p2p); }
+svg .t-remote { fill: var(--remote); }
+svg .t-accent { fill: var(--accent); }
+svg .wire { stroke: var(--muted); stroke-width: 1.4; fill: none; }
+svg .wire-p2p { stroke: var(--p2p); stroke-width: 1.8; fill: none; }
+svg .wire-remote { stroke: var(--remote); stroke-width: 1.8; fill: none; }
+svg .dash { stroke-dasharray: 5 4; }
+svg .ah { fill: var(--muted); }
+svg .ah-p2p { fill: var(--p2p); }
+svg .ah-remote { fill: var(--remote); }
+svg .marker { fill: var(--accent); }
+.grid-2 { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; margin: 16px 0 22px; }
+@media (max-width: 700px) { .grid-2 { grid-template-columns: minmax(0, 1fr); } }
+.card { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px; }
+.card h4 { margin: 0 0 6px; font-family: var(--font-head); font-size: 16px; font-weight: 600; }
+.card p { font-size: 14.5px; color: var(--muted); margin: 0; }
+.card.p2p h4 { color: var(--p2p); }
+.card.remote h4 { color: var(--remote); }
+ul.plain { padding-left: 20px; margin: 0 0 14px; }
+ul.plain li { margin-bottom: 6px; }
+footer { margin-top: 64px; padding-top: 20px; border-top: 1px solid var(--line); font-size: 13.5px; color: var(--muted); }
+@media (prefers-reduced-motion: no-preference) { html { scroll-behavior: smooth; } }
+</style>
+<style>
+.gloss { display: grid; grid-template-columns: minmax(120px, 190px) minmax(0, 1fr); gap: 0; }
+.gloss dt, .gloss dd { margin: 0; padding: 9px 12px; border-bottom: 1px solid var(--line); }
+.gloss dt { font-family: var(--font-mono); font-size: 13px; font-weight: 600; color: var(--ink); background: var(--surface-2); }
+.gloss dd { font-size: 14.5px; color: var(--muted); background: var(--surface); }
+@media (max-width: 560px) { .gloss { grid-template-columns: minmax(0, 1fr); } .gloss dt { border-bottom: none; } }
+.gloss-wrap { border: 1px solid var(--line); border-radius: 10px; overflow: hidden; margin: 16px 0 24px; }
+.flag-table td:first-child { font-family: var(--font-mono); font-size: 13px; white-space: nowrap; color: var(--ink); }
+</style>
+<style>
+table.mx td, table.mx th { vertical-align: top; }
+.pill { font-family: var(--font-mono); font-size: 12px; padding: 1px 7px; border-radius: 999px; background: var(--surface-2); border: 1px solid var(--line); white-space: nowrap; }
+.ev { font-family: var(--font-head); font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .05em; padding: 1px 6px; border-radius: 4px; white-space: nowrap; }
+.ev.c { color: var(--accent); background: var(--accent-soft); }
+.ev.s { color: var(--p2p); background: var(--p2p-soft); }
+.ev.t { color: var(--type); background: var(--surface-2); }
+.ev.x { color: var(--remote); background: var(--remote-soft); }
+.ev.k { color: var(--ink); background: var(--surface-2); border: 1px solid var(--line); }
+.ev.i { color: var(--muted); background: var(--surface-2); }
+ol.proto { padding-left: 22px; margin: 0 0 14px; }
+ol.proto li { margin-bottom: 8px; }
+</style>
+
+<div class="layout">
+  <nav class="toc" aria-label="Contents">
+    <div class="label">Contents</div>
+    <ol>
+      <li><a href="#q"><span class="n">A</span><span>What is validated</span></a></li>
+      <li><a href="#ev"><span class="n">B</span><span>Six kinds of evidence</span></a></li>
+      <li><a href="#proto"><span class="n">C</span><span>The test protocol</span></a></li>
+      <li><a href="#cat"><span class="n">D</span><span>Component catalogue</span></a></li>
+      <li><a href="#gen"><span class="n">E</span><span>From model to test list</span></a></li>
+      <li><a href="#harness"><span class="n">F</span><span>One harness for all tests</span></a></li>
+      <li><a href="#example"><span class="n">G</span><span>Worked example: receiver L2</span></a></li>
+      <li><a href="#pitfalls"><span class="n">H</span><span>Pitfalls</span></a></li>
+      <li><a href="#decide"><span class="n">I</span><span>Deciding a claim</span></a></li>
+      <li><a href="#schedule"><span class="n">J</span><span>Run schedule</span></a></li>
+    </ol>
+  </nav>
+
+  <main>
+    <header class="col">
+      <div class="eyebrow">Validation plan</div>
+      <h1>Validating GPU Memory Traffic</h1>
+      <p class="lede">A general method for testing, on real hardware, whether a given data flow passes through (or skips) any memory or interconnect component: registers, L1, shared memory, TMA, crossbar, L2, HBM, NVLink, NVSwitch, copy engines, PCIe/C2C, network cards, host memory and CPU. It is applied here to every NVSHMEM path on Beta's GB200 nodes, and works the same way for any memory-semantic fabric.</p>
+      <div class="meta">
+        <span class="chip">tests memory-traffic-model.html</span>
+        <span class="chip">NVSHMEM 3.9.0.dev0 @ 7bb2e99</span>
+        <span class="chip">plan only, nothing run yet</span>
+      </div>
+    </header>
+
+    <section id="q" class="col">
+      <div class="eyebrow">Overview A</div>
+      <h2>What is being validated: claims, not paths</h2>
+      <p>The traffic model is a list of <strong>claims</strong>, each of one form:</p>
+      <div class="note key">
+        <p><b>Flow F</b> (a payload or control stream, with a direction and an issuing engine) <b>passes</b> / <b>skips</b> <b>component C</b>, carrying <b>k · S</b> bytes for a transfer of S bytes, with <b>residency R</b> afterwards (for components that hold state: caches, buffers).</p>
+      </div>
+      <p>Examples from the model: "an SM put's source read passes the sender's L2, 1·S bytes"; "peer-bound stores skip the sender's L2"; "a copy-engine push uses no SM"; "an NVLS store leaves the sender once and reaches every member"; "an RDMA write arrives in the receiver's L2 and stays there". Validating the model means testing every claim with the same protocol (section C), using whichever kinds of evidence (section B) the component offers (section D). No claim is special; the receiver-L2 one is worked through in section G only as an example.</p>
+    </section>
+
+    <section id="ev" class="col">
+      <div class="eyebrow">Overview B</div>
+      <h2>Six kinds of evidence</h2>
+      <p>Each kind can be fooled in its own way; they are useful because they fail <em>independently</em>. A claim is accepted only when at least two kinds agree, and at least one of them is not a hardware counter.</p>
+      <div class="table-wrap">
+        <table class="mx">
+          <thead><tr><th>Evidence</th><th>Question it answers</th><th>How, in general</th><th>How it fails</th></tr></thead>
+          <tbody>
+            <tr><td><span class="ev c">counting</span></td><td>How many bytes crossed C?</td><td>A hardware counter at C (Nsight Compute, CUPTI, DCGM, NIC or CPU counters), read as a difference between an S-byte run and a 0-byte run</td><td>wrong counter, wrong scope (per kernel vs device), double counting, profiler side effects</td></tr>
+            <tr><td><span class="ev i">instruction</span></td><td>Which engine issued it, with which instructions?</td><td>SASS inspection (<code>cuobjdump -sass</code>) and executed-instruction counters (global/shared loads and stores, bulk copies)</td><td>code present but not executed; runtime fallback paths</td></tr>
+            <tr><td><span class="ev s">state</span></td><td>Did C keep a copy afterwards? (stateful C only)</td><td>A probe reads the data after the transfer and measures hit rate or traffic at C, compared with a "known present" and a "known absent" control</td><td>eviction between transfer and probe; the probe itself disturbing C</td></tr>
+            <tr><td><span class="ev t">timing</span></td><td>Does the data behave as if it is at C?</td><td>Latency signature: a dependent-load chain over the data, compared with controls at each level (L1 hit, L2 hit, HBM, peer)</td><td>prefetching, clock effects; distinguishes levels only when their latencies differ enough</td></tr>
+            <tr><td><span class="ev x">contention</span></td><td>Does the flow share C's capacity?</td><td>Saturate C with an unrelated "contender" workload; if the flow slows down (or the contender does), both use C. If neither changes, the flow does not pass C</td><td>shared bottlenecks elsewhere; C not saturable in isolation</td></tr>
+            <tr><td><span class="ev k">knock-out</span></td><td>Is C necessary for the flow?</td><td>Disable or bypass C (environment switch, cache hint, different API) and check that the flow changes path or fails as predicted</td><td>the switch changes more than C</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p>Contention and knock-out are the general tools for components that expose no counter at all (the NVSwitch, the copy engine's internals, the proxy's CPU path): they need only a stopwatch and a way to load or remove the component.</p>
+    </section>
+
+    <section id="proto" class="col">
+      <div class="eyebrow">Overview C</div>
+      <h2>The test protocol, for any claim</h2>
+      <ol class="proto">
+        <li><strong>State the claim</strong> in the form of section A, with the predicted k and R. Write down what the <em>opposite</em> claim would predict for each piece of evidence before measuring.</li>
+        <li><strong>Pick evidence</strong> from section D: at least two kinds, at least one not a counter.</li>
+        <li><strong>Build controls</strong> on the same GPU where the truth is known: a <em>positive</em> control that certainly uses C (for example a local kernel that writes through L2), and a <em>negative</em> control that certainly does not (for example the same buffer after C is flushed, or a path that cannot reach C).</li>
+        <li><strong>Isolate the flow.</strong> One path, one issuer, fixed source location, alignment and message size, nothing else running. Force the path with NVSHMEM's switches (<code>NVSHMEM_TMA_POLICY</code>, <code>NVSHMEM_DISABLE_P2P</code>, <code>NVSHMEM_DISABLE_NVLS</code>, <code>NVSHMEM_DISABLE_MNNVL</code>) and confirm it by instruction evidence.</li>
+        <li><strong>Difference run.</strong> Repeat with S = 0 and subtract, so barriers, signals, polling and proxy activity cancel.</li>
+        <li><strong>Sweep.</strong> Vary S across the component's capacity (L1, shared memory, L2 size) and a second knob (threads, blocks, concurrent streams). Check that counts scale linearly with S, and that changes of slope occur where the claim predicts, for example at the L2 size.</li>
+        <li><strong>Calibrate.</strong> Use the positive control to measure the counter's factor: sector size, double counting across L2 partitions, link and PCIe packet overhead. Divide it out of every result.</li>
+        <li><strong>Decide</strong> with section I, and record the claim in the model as "measured", with the run's job id.</li>
+      </ol>
+    </section>
+
+    <section id="cat" class="col">
+      <div class="eyebrow">Overview D</div>
+      <h2>Component catalogue (GB200)</h2>
+      <p>For each component, the evidence available on Beta. Counter names follow Nsight Compute's naming and must be confirmed in phase 0 with <code>ncu --query-metrics --chip gb100</code>; DCGM field ids are from DCGM's profiling field list.</p>
+      <div class="table-wrap">
+        <table class="mx">
+          <thead><tr><th>Component</th><th><span class="ev c">counting</span> / <span class="ev i">instruction</span></th><th><span class="ev s">state</span> / <span class="ev t">timing</span></th><th><span class="ev x">contention</span> / <span class="ev k">knock-out</span></th></tr></thead>
+          <tbody>
+            <tr><td>Registers</td><td><code>smsp__inst_executed_op_global_ld/st</code>, <code>…_shared_ld/st</code>; SASS <code>LDG</code>/<code>STG</code>/<code>LDS</code>/<code>STS</code></td><td>—</td><td>knock-out: a TMA or copy-engine path should drop these to ≈ 0</td></tr>
+            <tr><td>L1 cache</td><td><code>l1tex__t_sectors_pipe_lsu_mem_global_op_ld</code> with <code>_lookup_hit/_miss</code>; <code>l1tex__t_sector_hit_rate</code></td><td>state: re-read with <code>ld.ca</code>; timing: L1-hit chain</td><td>knock-out: <code>ld.global.cg</code> (skip L1); nothing should change if the flow does not use L1</td></tr>
+            <tr><td>Shared memory</td><td>shared-memory wavefronts (<code>l1tex__data_pipe_lsu_wavefronts_mem_shared</code>); bulk-copy instruction counts; SASS <code>UBLKCP</code>, <code>UTMALDG</code></td><td>state: read back content</td><td>contention: a bank-conflict-heavy kernel on the same SM; knock-out: without <code>give_smem</code> the TMA path cannot run</td></tr>
+            <tr><td>TMA unit</td><td>SASS bulk-copy instructions and their executed counts; global ld/st ≈ 0</td><td>—</td><td>knock-out: <code>NVSHMEM_TMA_POLICY=DISABLE</code></td></tr>
+            <tr><td>Crossbar (SM ↔ L2)</td><td><code>l1tex__m_l1tex2xbar_*</code>, <code>l1tex__m_xbar2l1tex_*</code></td><td>—</td><td>—</td></tr>
+            <tr><td>L2 cache</td><td><code>lts__t_sectors_*</code> split by source (<code>srcnode_gpc</code> = SMs, <code>srcnode_hub</code> = copy engines, PCIe/C2C, NVLink arrivals), operation and hit/miss</td><td>state: consumer read after transfer (hit rate, DRAM read); timing: L2-hit vs HBM chain</td><td>contention: an L2-thrashing kernel between transfer and probe; knock-out: L2 persistence window (<code>cudaAccessPolicyWindow</code>) or PTX eviction hints on the probe side</td></tr>
+            <tr><td>HBM</td><td><code>dram__bytes_read/write</code>; DCGM 1005 (DRAM active)</td><td>timing: HBM-latency chain</td><td>contention: a DRAM-bandwidth hog on the same GPU slows the flow only if it uses HBM; knock-out: keep the working set L2-resident</td></tr>
+            <tr><td>NVLink ports</td><td><code>nvltx__bytes</code>, <code>nvlrx__bytes</code>, split into request/response packets; DCGM 1011/1012</td><td>timing: peer-load chain</td><td>contention: a second put stream on the same link; knock-out: <code>NVSHMEM_DISABLE_P2P=1</code> moves the flow to the network</td></tr>
+            <tr><td>NVSwitch</td><td>no user-visible counters; sender tx vs sum of member rx (NVLS: 1 out, N in)</td><td>—</td><td>knock-out: <code>NVSHMEM_DISABLE_NVLS=1</code> (unicast fan-out: tx becomes (N−1)·S)</td></tr>
+            <tr><td>Copy engine</td><td>Nsight Systems memcpy rows; L2 traffic under <code>srcnode_hub</code> with no SM instructions</td><td>—</td><td>contention: concurrent copies on other streams; knock-out: the same transfer as a device put (SM path)</td></tr>
+            <tr><td>PCIe / C2C</td><td><code>pcie__read/write_bytes</code>; DCGM 1009/1010</td><td>timing: host-memory load chain</td><td>contention: a large host↔device copy in parallel</td></tr>
+            <tr><td>Network card</td><td><code>/sys/class/infiniband/*/ports/*/counters/port_xmit_data</code>, <code>port_rcv_data</code> (4-byte units), <code>port_xmit_packets</code>; <code>hw_counters/</code></td><td>—</td><td>contention: <code>ib_write_bw</code> on the same port; knock-out: IBGDA vs proxy build</td></tr>
+            <tr><td>Host memory, CPU</td><td>CPU time of the proxy thread (<code>top -H</code>, <code>/proc/&lt;pid&gt;/task/*/stat</code>); <code>perf stat</code> if permitted; <code>NVSHMEM_DEBUG=TRACE NVSHMEM_DEBUG_SUBSYS=PROXY</code></td><td>—</td><td>contention: pin a CPU hog on the proxy's core; knock-out: IBGDA (no proxy)</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p>Components with no counter at all (NVSwitch, copy-engine internals, the CPU's part of the proxy) are validated only by contention, knock-out and conservation of bytes across their neighbours (what goes in = what comes out, times any replication factor).</p>
+    </section>
+
+    <section id="gen" class="col">
+      <div class="eyebrow">Overview E</div>
+      <h2>From the model to a test list</h2>
+      <p>Each row of the per-path table in <code>memory-traffic-model.html</code> (section E there) expands into claims, one per component the path should use and one per component it should skip. The table below is that expansion. Each cell names the evidence to use, drawn from section D.</p>
+      <div class="table-wrap">
+        <table class="mx">
+          <thead><tr><th>Path</th><th>Forced by</th><th>Should use (claims to test)</th><th>Should skip (claims to test)</th></tr></thead>
+          <tbody>
+            <tr><td>1 put, ld/st</td><td>default, 1 node</td><td>registers <span class="ev i">instr</span> · A L2 read <span class="ev c">count</span> <span class="ev x">contend</span> · A HBM read if cold <span class="ev c">count</span> · NVLink <span class="ev c">count</span> <span class="ev x">contend</span> · B L2 <span class="ev c">count</span> <span class="ev s">state</span> <span class="ev t">time</span></td><td>A L2 for the destination <span class="ev c">count</span> · B's SMs <span class="ev i">instr</span></td></tr>
+            <tr><td>1 get, ld</td><td>default</td><td>B L2 read <span class="ev c">count</span> · NVLink data B→A, requests A→B <span class="ev c">count</span> · A L2 write (local store) <span class="ev c">count</span> <span class="ev t">time</span></td><td>B's SMs</td></tr>
+            <tr><td>2A TMA, smem source</td><td><code>NVSHMEM_TMA_POLICY=ENABLE</code> + <code>give_smem</code></td><td>TMA, shared memory <span class="ev i">instr</span> · NVLink · B L2</td><td>registers <span class="ev i">instr</span> · A L2 and HBM <span class="ev c">count</span></td></tr>
+            <tr><td>2B TMA, staged</td><td>as 2A, global source</td><td>A L2 read · shared memory (twice) <span class="ev i">instr</span> <span class="ev x">contend</span> · NVLink · B L2</td><td>L1 <span class="ev c">count</span> <span class="ev k">knock</span> · registers</td></tr>
+            <tr><td>2C TMA get → smem</td><td>as 2A</td><td>B L2 read · NVLink B→A · shared memory</td><td>A L2 and HBM</td></tr>
+            <tr><td>3 NVLS store</td><td>4 PEs, <code>nvshmemx_mc_ptr</code></td><td>NVSwitch replication: A tx ≈ S, rx ≈ S on all 4 incl. A <span class="ev c">count</span> <span class="ev k">knock</span> · each member's L2</td><td>unicast fan-out</td></tr>
+            <tr><td>4 copy engine</td><td>host API, 1 node</td><td>copy engine <span class="ev c">count</span> (Nsight Systems) <span class="ev x">contend</span> · A L2 under <code>srcnode_hub</code> · NVLink · B L2</td><td>SMs <span class="ev i">instr</span> · A L2 for the destination</td></tr>
+            <tr><td>5 proxy + IB</td><td>2 nodes, <code>NVSHMEM_DISABLE_MNNVL=1</code></td><td>A L2 via hub · PCIe · NIC <span class="ev c">count</span> <span class="ev x">contend</span> · CPU proxy thread <span class="ev c">count</span> <span class="ev x">contend</span> · host memory ring · B L2 <span class="ev s">state</span> <span class="ev t">time</span></td><td>NVLink <span class="ev c">count</span></td></tr>
+            <tr><td>6 IBGDA</td><td>IBGDA build + <code>NVSHMEM_IB_ENABLE_IBGDA=1</code></td><td>as 5, plus NIC reads of work entries from GPU memory</td><td>CPU <span class="ev c">count</span> <span class="ev x">contend</span></td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p>Control traffic (requests, doorbells, completions, polling) is tested the same way with small S and many operations: counts should scale with the number of operations, and for polling with waiting time, not with S.</p>
+    </section>
+
+    <section id="harness" class="col">
+      <div class="eyebrow">Overview F</div>
+      <h2>One harness for all tests</h2>
+      <p>A single program (proposed <code>examples/traffic-probe.cu</code>, not written yet) composes every test from three kinds of pieces, so that adding a component or a path means adding a piece, not a program:</p>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Piece</th><th>Choices</th><th>Role in the protocol</th></tr></thead>
+          <tbody>
+            <tr><td>Flow</td><td>issuer (SM ld/st, TMA, NVLS store, host API → copy engine, proxy, IBGDA) × source (global, shared, host) × direction (put, get) × size S</td><td>the claim's F</td></tr>
+            <tr><td>Instrument</td><td><span class="pill">sentinel</span> kernel so a passive GPU can be profiled · <span class="pill">consume</span> (read once, chosen cache operator) · <span class="pill">chase</span> (dependent-load latency) · <span class="pill">flush</span> (per cache level) · <span class="pill">local-write</span> (positive control)</td><td>state, timing and counting evidence</td></tr>
+            <tr><td>Contender</td><td>per component: L2 thrasher, DRAM-bandwidth hog, NVLink stream to the same peer, PCIe host copy, <code>ib_write_bw</code>, CPU hog pinned to the proxy core</td><td>contention evidence</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p>Command-line form: <code>traffic-probe --flow put-ldst --src gmem --bytes S --instrument consume --contend l2 --cond arrived|local|flushed</code>. Knock-outs are environment variables and build options, so they need no code.</p>
+    </section>
+
+    <section id="example" class="col">
+      <div class="eyebrow">Overview G</div>
+      <h2>Worked example: "arrivals stay in the receiver's L2"</h2>
+      <p>The protocol applied to one claim, to show how the pieces combine. Claim: an NVLink put of S bytes from A to B passes B's L2 (1·S bytes) and stays there (R = resident while S &lt; L2 size). Opposite claim: arrivals go to HBM directly.</p>
+      <div class="table-wrap">
+        <table class="mx">
+          <thead><tr><th>Evidence</th><th>Setup (harness pieces)</th><th>Claim predicts</th><th>Opposite predicts</th></tr></thead>
+          <tbody>
+            <tr><td><span class="ev c">counting</span></td><td>flow put-ldst; instrument <span class="pill">sentinel</span> on B; B's L2 writes from <code>srcnode_hub</code>, <code>dram__bytes_write</code>, <code>nvlrx__bytes</code></td><td>L2 ≈ S, HBM ≪ S, rx ≈ h·S</td><td>L2 ≈ 0, HBM ≈ S</td></tr>
+            <tr><td><span class="ev s">state</span></td><td>instrument <span class="pill">consume</span> on B, conditions arrived / local / flushed</td><td>arrived ≈ local</td><td>arrived ≈ flushed</td></tr>
+            <tr><td><span class="ev t">timing</span></td><td>instrument <span class="pill">chase</span> on B, same three conditions</td><td>arrived ≈ local latency</td><td>arrived ≈ flushed latency</td></tr>
+            <tr><td><span class="ev x">contention</span></td><td>contender "L2 thrasher" on B between arrival and consume</td><td>hit rate drops to flushed level</td><td>no change (already missing)</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p>Every other claim follows the same template, with its own row from section E and its own column from section D.</p>
+    </section>
+
+    <section id="pitfalls" class="col">
+      <div class="eyebrow">Overview H</div>
+      <h2>Pitfalls, in general</h2>
+      <ul class="plain">
+        <li><strong>The profiler changes the system.</strong> Nsight Compute flushes caches before each kernel by default (use <code>--cache-control none</code> for any state or timing test). It replays kernels once per counter group, which re-sends communication and makes waiting kernels return at once: keep each counter set to a single pass and repeat the job per group. Application replay re-runs only the profiled rank, not its MPI peers, so it does not help.</li>
+        <li><strong>Passive components and GPUs.</strong> One-sided transfers leave the receiver without a kernel, and the copy engine, NVSwitch and NIC never run one. Use a sentinel kernel, or sampling over time (Nsight Systems GPU metrics, CUPTI PM sampling, DCGM).</li>
+        <li><strong>Counter scope.</strong> Some counters are per SM or per kernel, some device-wide. Linearity in S of a flow the kernel does not issue itself shows that a counter sees external traffic.</li>
+        <li><strong>Counting factors.</strong> Sector size, double counting between the two L2 partitions, packet headers on NVLink and PCIe, 4-byte units on NIC counters. Calibrate each with a positive control.</li>
+        <li><strong>Deferred effects.</strong> Write-backs, completions and evictions may happen outside the measurement window. Sweep S and window length rather than trusting one run.</li>
+        <li><strong>Silent path changes.</strong> NVSHMEM falls back quietly (TMA → ld/st on misalignment, NVLink → network when a peer is unreachable). Confirm the path of every run by instruction evidence or link counters before reading anything else.</li>
+        <li><strong>One rank at a time.</strong> Profile through a wrapper that runs the profiler only on the rank of interest.</li>
+      </ul>
+    </section>
+
+    <section id="decide" class="col">
+      <div class="eyebrow">Overview I</div>
+      <h2>Deciding a claim</h2>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Result</th><th>Decision</th></tr></thead>
+          <tbody>
+            <tr><td>All chosen evidence agrees with the claim</td><td>Accept; mark the claim "measured" in the model.</td></tr>
+            <tr><td>All agrees with the opposite</td><td>Reject; change the model and every result derived from the claim.</td></tr>
+            <tr><td>Counting agrees, state or timing disagrees</td><td>The flow passes C but does not stay (for stateful C): add a residency term.</td></tr>
+            <tr><td>State, timing and contention agree, counting disagrees</td><td>The counter is wrong for this purpose (scope, naming, attribution); keep the behavioural result and fix the counter choice.</td></tr>
+            <tr><td>Counts scale with S but with an unexpected factor</td><td>Calibration missing or a hidden flow (for example a partial-sector read-fill, a staging copy); find it before accepting.</td></tr>
+            <tr><td>Slope changes at an unexpected size</td><td>Effective capacity differs from the specification (partitioning, eviction by other traffic, persistence policy).</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section id="schedule" class="col">
+      <div class="eyebrow">Overview J</div>
+      <h2>Run schedule</h2>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Phase</th><th>Needs</th><th>Covers</th></tr></thead>
+          <tbody>
+            <tr><td>0 inventory</td><td>1 node, <code>--qos=test</code></td><td>tool availability (<code>which ncu nsys</code>, DCGM module, NIC counters), counter names, L2 and shared-memory sizes, calibration factors from positive controls</td></tr>
+            <tr><td>1 harness</td><td>1 node</td><td>write <code>traffic-probe</code>; check each instrument against its controls on one GPU</td></tr>
+            <tr><td>2 one node</td><td>1 node, 2–4 GPUs</td><td>paths 1–4 of section E, including NVLS with 4 PEs</td></tr>
+            <tr><td>3 two nodes</td><td>2 nodes, <code>--qos=standard</code></td><td>path 5, NIC and CPU claims</td></tr>
+            <tr><td>4 IBGDA</td><td>IBGDA build</td><td>path 6</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p>Before each job, check the request with <code>srun --test-only …</code>, which allocates nothing. The login node has no GPU or profiler, so phase 0 is the first time counter names can be confirmed.</p>
+    </section>
+
+    <footer class="col">
+      Plan written 2026-09-30. Nothing has been run. Counter names follow Nsight Compute's naming and NVIDIA developer-forum replies ("NCU L2 metric understanding", thread 361731); DCGM field ids from DCGM's profiling fields; all to be confirmed in phase 0. Related pages: <code>memory-traffic-model.html</code>, <code>data-movement-paths.html</code>, <code>observability-gaps-memory-semantic-fabrics.md</code>.
+    </footer>
+  </main>
+</div>

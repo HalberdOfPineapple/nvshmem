@@ -1,0 +1,958 @@
+<title>NVSHMEM Ring Walkthrough</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans+Condensed:wght@500;600;700&family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;1,400&display=swap">
+<style>
+:root {
+  --bg: #F5F6F8;
+  --surface: #FFFFFF;
+  --surface-2: #ECEFF3;
+  --ink: #17202A;
+  --muted: #5A6572;
+  --line: #D5DBE2;
+  --accent: #2B59C3;
+  --accent-soft: #E3EAFA;
+  --p2p: #11806E;
+  --p2p-soft: #DDF2EE;
+  --remote: #B0620B;
+  --remote-soft: #FBEBD8;
+  --type: #7446B5;
+  --code-bg: #EEF1F5;
+  --font-body: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-head: "IBM Plex Sans Condensed", "Arial Narrow", system-ui, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --bg: #0E1318;
+    --surface: #151C23;
+    --surface-2: #1C252F;
+    --ink: #E3E8EE;
+    --muted: #97A2AE;
+    --line: #2B3541;
+    --accent: #8AABFF;
+    --accent-soft: #1D2A48;
+    --p2p: #4FC8B2;
+    --p2p-soft: #123330;
+    --remote: #E8A650;
+    --remote-soft: #3A2A14;
+    --type: #C4A7F4;
+    --code-bg: #111920;
+  }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #0E1318;
+  --surface: #151C23;
+  --surface-2: #1C252F;
+  --ink: #E3E8EE;
+  --muted: #97A2AE;
+  --line: #2B3541;
+  --accent: #8AABFF;
+  --accent-soft: #1D2A48;
+  --p2p: #4FC8B2;
+  --p2p-soft: #123330;
+  --remote: #E8A650;
+  --remote-soft: #3A2A14;
+  --type: #C4A7F4;
+  --code-bg: #111920;
+}
+
+* { box-sizing: border-box; }
+body {
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--font-body);
+  font-size: 16px;
+  line-height: 1.6;
+  padding-inline: 20px;
+  padding-block: 0 64px;
+}
+.layout {
+  max-width: 1180px;
+  margin: 0 auto;
+  display: grid;
+  grid-template-columns: 220px minmax(0, 1fr);
+  gap: 48px;
+}
+@media (max-width: 960px) {
+  .layout { grid-template-columns: minmax(0, 1fr); gap: 0; }
+}
+nav.toc {
+  position: sticky;
+  top: env(safe-area-inset-top, 0px);
+  align-self: start;
+  padding-block: 40px 24px;
+  font-size: 14px;
+}
+nav.toc .label {
+  font-family: var(--font-head);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-size: 12px;
+  color: var(--muted);
+  margin-bottom: 10px;
+}
+nav.toc ol { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; }
+nav.toc a {
+  display: grid;
+  grid-template-columns: 26px 1fr;
+  gap: 4px;
+  padding: 5px 8px;
+  border-radius: 6px;
+  color: var(--ink);
+  text-decoration: none;
+}
+nav.toc a:hover, nav.toc a:focus-visible { background: var(--surface-2); outline: none; }
+nav.toc a .n { font-family: var(--font-mono); color: var(--muted); font-size: 12px; padding-top: 2px; }
+@media (max-width: 960px) {
+  nav.toc { position: static; padding-block: 24px 0; }
+  nav.toc ol { grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); }
+}
+main { min-width: 0; padding-block: 40px 0; }
+.col { max-width: 820px; }
+h1, h2, h3 { font-family: var(--font-head); text-wrap: balance; line-height: 1.15; }
+h1 { font-size: clamp(34px, 5vw, 50px); font-weight: 700; margin: 0 0 14px; letter-spacing: -0.01em; }
+h2 { font-size: 30px; font-weight: 700; margin: 0 0 6px; }
+h3 { font-size: 20px; font-weight: 600; margin: 34px 0 10px; }
+p { margin: 0 0 14px; }
+.lede { font-size: 18px; color: var(--muted); max-width: 64ch; }
+.eyebrow {
+  font-family: var(--font-head);
+  text-transform: uppercase;
+  letter-spacing: 0.09em;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--accent);
+  margin-bottom: 8px;
+}
+.meta { display: flex; flex-wrap: wrap; gap: 8px; margin: 18px 0 0; }
+.chip {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  padding: 3px 9px;
+  border-radius: 999px;
+  background: var(--surface-2);
+  color: var(--muted);
+  border: 1px solid var(--line);
+}
+a { color: var(--accent); }
+code, .mono { font-family: var(--font-mono); font-size: 0.88em; }
+:not(pre) > code {
+  background: var(--code-bg);
+  padding: 1px 5px;
+  border-radius: 4px;
+  overflow-wrap: anywhere;
+}
+section { padding-top: 56px; scroll-margin-top: 16px; }
+section + section { border-top: 1px solid var(--line); margin-top: 56px; }
+.step-head { display: flex; align-items: baseline; gap: 14px; flex-wrap: wrap; }
+.step-num {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--accent);
+  background: var(--accent-soft);
+  padding: 3px 9px;
+  border-radius: 6px;
+}
+.src-line { font-family: var(--font-mono); font-size: 13px; color: var(--muted); margin: 4px 0 18px; }
+pre {
+  background: var(--code-bg);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 14px 16px;
+  overflow-x: auto;
+  font-family: var(--font-mono);
+  font-size: 13px;
+  line-height: 1.55;
+  margin: 0 0 6px;
+}
+pre code { background: none; padding: 0; font-size: inherit; }
+figure.code { margin: 16px 0 22px; }
+figure.code figcaption { font-family: var(--font-mono); font-size: 12px; color: var(--muted); }
+.hljs-keyword, .hljs-built_in, .hljs-meta .hljs-keyword { color: var(--accent); font-weight: 500; }
+.hljs-type { color: var(--type); }
+.hljs-string { color: var(--p2p); }
+.hljs-number, .hljs-literal { color: var(--remote); }
+.hljs-comment { color: var(--muted); font-style: italic; }
+.hljs-meta { color: var(--type); }
+.hljs-title.function_ { font-weight: 600; }
+.chain-wrap {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 16px 18px 6px;
+  margin: 16px 0 24px;
+  overflow-x: auto;
+}
+.chain-wrap > .label {
+  font-family: var(--font-head);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted);
+  margin-bottom: 10px;
+}
+ol.chain, ol.chain ol { list-style: none; margin: 0; padding: 0; }
+ol.chain ol { margin-left: 9px; padding-left: 18px; border-left: 1px solid var(--line); }
+ol.chain li { position: relative; padding: 0 0 12px; min-width: 0; }
+ol.chain ol > li::before {
+  content: "";
+  position: absolute;
+  left: -18px;
+  top: 12px;
+  width: 12px;
+  border-top: 1px solid var(--line);
+}
+.fn { font-family: var(--font-mono); font-size: 13.5px; font-weight: 600; color: var(--ink); }
+.loc { font-family: var(--font-mono); font-size: 12px; color: var(--muted); margin-left: 8px; white-space: nowrap; }
+.what { display: block; font-size: 14.5px; color: var(--muted); line-height: 1.5; max-width: 70ch; }
+li.hot > .fn { color: var(--accent); }
+li.p2p > .fn { color: var(--p2p); }
+li.remote > .fn { color: var(--remote); }
+.tag {
+  font-family: var(--font-head);
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  padding: 1px 7px;
+  border-radius: 4px;
+  margin-left: 6px;
+  vertical-align: 1px;
+}
+.tag.p2p { color: var(--p2p); background: var(--p2p-soft); }
+.tag.remote { color: var(--remote); background: var(--remote-soft); }
+.tag.lazy { color: var(--accent); background: var(--accent-soft); }
+.note { border: 1px solid var(--line); background: var(--surface); border-radius: 10px; padding: 14px 18px; margin: 18px 0 22px; }
+.note .note-title { font-weight: 600; margin-bottom: 4px; }
+.note.key { border-color: var(--accent); background: var(--accent-soft); }
+.note p:last-child { margin-bottom: 0; }
+.table-wrap { overflow-x: auto; margin: 16px 0 24px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); }
+table { border-collapse: collapse; width: 100%; font-size: 14px; }
+th, td { text-align: left; padding: 9px 14px; border-bottom: 1px solid var(--line); vertical-align: top; }
+tr:last-child td { border-bottom: none; }
+th { font-family: var(--font-head); text-transform: uppercase; letter-spacing: 0.06em; font-size: 12px; color: var(--muted); background: var(--surface-2); }
+td.path { font-family: var(--font-mono); font-size: 13px; white-space: nowrap; }
+td.num { font-variant-numeric: tabular-nums; text-align: right; font-family: var(--font-mono); font-size: 13px; color: var(--muted); }
+.program { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr); gap: 20px; margin: 28px 0 8px; align-items: start; }
+@media (max-width: 760px) { .program { grid-template-columns: minmax(0, 1fr); } }
+.steps { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.steps a {
+  display: grid;
+  grid-template-columns: 34px 1fr;
+  gap: 10px;
+  padding: 10px 12px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  text-decoration: none;
+  color: var(--ink);
+}
+.steps a:hover, .steps a:focus-visible { border-color: var(--accent); outline: none; }
+.steps .n { font-family: var(--font-mono); font-weight: 600; color: var(--accent); }
+.steps .t { font-weight: 600; display: block; }
+.steps .d { font-size: 13.5px; color: var(--muted); display: block; line-height: 1.45; }
+.steps .ln { font-family: var(--font-mono); font-size: 12px; color: var(--muted); }
+figure.diagram { margin: 20px 0 26px; }
+figure.diagram .scroll { overflow-x: auto; background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 12px; }
+figure.diagram svg { display: block; width: 100%; min-width: 640px; height: auto; }
+figure.diagram figcaption { font-size: 13.5px; color: var(--muted); margin-top: 8px; }
+svg .box { fill: var(--surface-2); stroke: var(--line); stroke-width: 1.2; }
+svg .box-accent { fill: var(--accent-soft); stroke: var(--accent); stroke-width: 1.2; }
+svg .box-p2p { fill: var(--p2p-soft); stroke: var(--p2p); stroke-width: 1.2; }
+svg .box-remote { fill: var(--remote-soft); stroke: var(--remote); stroke-width: 1.2; }
+svg .box-plain { fill: var(--surface); stroke: var(--line); stroke-width: 1.2; }
+svg .t-head { font-family: var(--font-mono); font-size: 13.5px; font-weight: 600; fill: var(--ink); }
+svg .t-body { font-family: var(--font-body); font-size: 12.5px; fill: var(--muted); }
+svg .t-mono { font-family: var(--font-mono); font-size: 11.5px; fill: var(--muted); }
+svg .t-label { font-family: var(--font-head); font-size: 12px; font-weight: 600; letter-spacing: 0.05em; fill: var(--muted); }
+svg .t-p2p { fill: var(--p2p); }
+svg .t-remote { fill: var(--remote); }
+svg .t-accent { fill: var(--accent); }
+svg .wire { stroke: var(--muted); stroke-width: 1.4; fill: none; }
+svg .wire-p2p { stroke: var(--p2p); stroke-width: 1.8; fill: none; }
+svg .wire-remote { stroke: var(--remote); stroke-width: 1.8; fill: none; }
+svg .dash { stroke-dasharray: 5 4; }
+svg .ah { fill: var(--muted); }
+svg .ah-p2p { fill: var(--p2p); }
+svg .ah-remote { fill: var(--remote); }
+svg .marker { fill: var(--accent); }
+.grid-2 { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; margin: 16px 0 22px; }
+@media (max-width: 700px) { .grid-2 { grid-template-columns: minmax(0, 1fr); } }
+.card { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px; }
+.card h4 { margin: 0 0 6px; font-family: var(--font-head); font-size: 16px; font-weight: 600; }
+.card p { font-size: 14.5px; color: var(--muted); margin: 0; }
+.card.p2p h4 { color: var(--p2p); }
+.card.remote h4 { color: var(--remote); }
+ul.plain { padding-left: 20px; margin: 0 0 14px; }
+ul.plain li { margin-bottom: 6px; }
+footer { margin-top: 64px; padding-top: 20px; border-top: 1px solid var(--line); font-size: 13.5px; color: var(--muted); }
+@media (prefers-reduced-motion: no-preference) { html { scroll-behavior: smooth; } }
+</style>
+
+<div class="layout">
+  <nav class="toc" aria-label="Contents">
+    <div class="label">Contents</div>
+    <ol>
+      <li><a href="#map"><span class="n">A</span><span>Code map</span></a></li>
+      <li><a href="#model"><span class="n">B</span><span>Core ideas</span></a></li>
+      <li><a href="#s1"><span class="n">1</span><span>nvshmem_init</span></a></li>
+      <li><a href="#s2"><span class="n">2</span><span>Pick the GPU</span></a></li>
+      <li><a href="#s3"><span class="n">3</span><span>nvshmem_malloc</span></a></li>
+      <li><a href="#s4"><span class="n">4</span><span>nvshmem_int_p</span></a></li>
+      <li><a href="#s5"><span class="n">5</span><span>Barrier on stream</span></a></li>
+      <li><a href="#s6"><span class="n">6</span><span>Read, free, finalize</span></a></li>
+      <li><a href="#beta"><span class="n">C</span><span>On Beta (GB200)</span></a></li>
+      <li><a href="#findings"><span class="n">D</span><span>Surprises in the trace</span></a></li>
+    </ol>
+  </nav>
+
+  <main>
+    <header class="col">
+      <div class="eyebrow">Code walkthrough</div>
+      <h1>NVSHMEM Ring Walkthrough</h1>
+      <p class="lede">How one 40-line program, <code>examples/dev-guide-ring.cu</code>, moves through the NVSHMEM source: from bootstrap and the symmetric heap to a single GPU-initiated store and the barrier that makes it visible.</p>
+      <div class="meta">
+        <span class="chip">NVSHMEM 3.9.0.dev0</span>
+        <span class="chip">branch devel @ 7bb2e99</span>
+        <span class="chip">paths relative to repo root</span>
+        <span class="chip">line numbers checked against source</span>
+      </div>
+    </header>
+
+    <div class="program">
+      <figure class="code" style="margin:0">
+<pre><code class="language-cpp">__global__ void simple_shift(int *destination) {
+    int mype = nvshmem_my_pe();
+    int npes = nvshmem_n_pes();
+    int peer = (mype + 1) % npes;
+
+    nvshmem_int_p(destination, mype, peer);
+}
+
+int main(void) {
+    int mype_node, msg;
+    cudaStream_t stream;
+
+    nvshmem_init();
+    mype_node = nvshmem_team_my_pe(NVSHMEMX_TEAM_NODE);
+    cudaSetDevice(mype_node);
+    cudaStreamCreate(&amp;stream);
+
+    int *destination = (int *)nvshmem_malloc(sizeof(int));
+
+    simple_shift&lt;&lt;&lt;1, 1, 0, stream&gt;&gt;&gt;(destination);
+    nvshmemx_barrier_all_on_stream(stream);
+    cudaMemcpyAsync(&amp;msg, destination, sizeof(int),
+                    cudaMemcpyDeviceToHost, stream);
+
+    cudaStreamSynchronize(stream);
+    printf("%d: received message %d\n", nvshmem_my_pe(), msg);
+
+    nvshmem_free(destination);
+    nvshmem_finalize();
+    return 0;
+}</code></pre>
+        <figcaption>examples/dev-guide-ring.cu (includes omitted). Every PE writes its rank into the next PE's <code>destination</code>.</figcaption>
+      </figure>
+      <ol class="steps">
+        <li><a href="#s1"><span class="n">1</span><span><span class="t">nvshmem_init()</span><span class="d">Bootstrap: find the other PEs and which ones share a node.</span><span class="ln">line 23</span></span></a></li>
+        <li><a href="#s2"><span class="n">2</span><span><span class="t">team_my_pe + cudaSetDevice</span><span class="d">Local rank picks the GPU. This creates the CUDA context.</span><span class="ln">lines 24–26</span></span></a></li>
+        <li><a href="#s3"><span class="n">3</span><span><span class="t">nvshmem_malloc()</span><span class="d">Finishes the deferred init, then carves a symmetric buffer.</span><span class="ln">line 28</span></span></a></li>
+        <li><a href="#s4"><span class="n">4</span><span><span class="t">simple_shift → nvshmem_int_p</span><span class="d">One store to a peer GPU: direct over NVLink, or through the proxy to InfiniBand.</span><span class="ln">lines 11–17, 30</span></span></a></li>
+        <li><a href="#s5"><span class="n">5</span><span><span class="t">barrier_all_on_stream</span><span class="d">A one-block kernel that runs a dissemination barrier.</span><span class="ln">line 31</span></span></a></li>
+        <li><a href="#s6"><span class="n">6</span><span><span class="t">copy, free, finalize</span><span class="d">Read the local copy, release the buffer, tear everything down.</span><span class="ln">lines 32–38</span></span></a></li>
+      </ol>
+    </div>
+
+    <section id="map" class="col">
+      <div class="eyebrow">Overview A</div>
+      <h2>Code map</h2>
+      <p>NVSHMEM ships as two libraries plus runtime plugins. The split explains most of the call chains below: anything a kernel calls is compiled into <em>your</em> binary, while initialization, memory mapping and networking live in a shared library that loads its bootstrap and network backends with <code>dlopen</code>.</p>
+
+      <figure class="diagram">
+        <div class="scroll">
+        <svg viewBox="0 0 760 372" role="img" aria-labelledby="d1t">
+          <title id="d1t">NVSHMEM library layering</title>
+          <defs>
+            <marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="ah"/></marker>
+          </defs>
+          <rect x="200" y="14" width="360" height="58" rx="8" class="box-accent"/>
+          <text x="380" y="38" text-anchor="middle" class="t-head">your program · dev-guide-ring</text>
+          <text x="380" y="58" text-anchor="middle" class="t-body">host main() + the simple_shift kernel</text>
+
+          <rect x="20" y="118" width="340" height="104" rx="8" class="box"/>
+          <text x="36" y="142" class="t-head">libnvshmem_device.a</text>
+          <text x="36" y="162" class="t-body">static; linked into your binary</text>
+          <text x="36" y="180" class="t-mono">device API: nvshmem_int_p, quiet, barrier …</text>
+          <text x="36" y="198" class="t-mono">__constant__ nvshmemi_device_state_d</text>
+          <text x="36" y="214" class="t-mono">nvshmemi_init_thread()</text>
+
+          <rect x="400" y="118" width="340" height="104" rx="8" class="box"/>
+          <text x="416" y="142" class="t-head">libnvshmem_host.so</text>
+          <text x="416" y="162" class="t-body">init, symmetric heap, teams, collectives</text>
+          <text x="416" y="180" class="t-body">proxy thread, built-in P2P transport</text>
+          <text x="416" y="198" class="t-mono">nvshmemid_hostlib_init_attr()</text>
+          <text x="416" y="214" class="t-mono">nvshmemi_update_device_state()</text>
+
+          <path d="M300 72 L220 116" class="wire" marker-end="url(#arr)"/>
+          <path d="M460 72 L540 116" class="wire" marker-end="url(#arr)"/>
+          <text x="232" y="98" class="t-mono" text-anchor="end">kernel calls</text>
+          <text x="530" y="98" class="t-mono">host calls</text>
+
+          <path d="M360 150 L398 150" class="wire" marker-end="url(#arr)"/>
+          <path d="M398 190 L362 190" class="wire dash" marker-end="url(#arr)"/>
+          <text x="380" y="140" text-anchor="middle" class="t-mono">init</text>
+          <text x="380" y="208" text-anchor="middle" class="t-mono">state</text>
+
+          <rect x="20" y="276" width="340" height="80" rx="8" class="box-plain"/>
+          <text x="36" y="300" class="t-head">GPU memory on each PE</text>
+          <text x="36" y="320" class="t-body">symmetric heap (cuMemCreate / cudaMalloc)</text>
+          <text x="36" y="338" class="t-body">+ peers' heaps mapped into the same VA space</text>
+
+          <rect x="400" y="276" width="164" height="80" rx="8" class="box-plain"/>
+          <text x="412" y="300" class="t-head">bootstrap_*.so</text>
+          <text x="412" y="320" class="t-mono">pmi · pmi2 · mpi</text>
+          <text x="412" y="338" class="t-mono">uid</text>
+
+          <rect x="576" y="276" width="164" height="80" rx="8" class="box-plain"/>
+          <text x="588" y="300" class="t-head">transport_ibrc.so</text>
+          <text x="588" y="320" class="t-body">InfiniBand RC,</text>
+          <text x="588" y="338" class="t-body">driven by the proxy</text>
+
+          <path d="M480 222 L480 274" class="wire" marker-end="url(#arr)"/>
+          <path d="M640 222 L656 274" class="wire" marker-end="url(#arr)"/>
+          <text x="488" y="252" class="t-mono">dlopen</text>
+          <text x="656" y="252" class="t-mono">dlopen</text>
+          <path d="M420 222 L300 274" class="wire" marker-end="url(#arr)"/>
+          <text x="352" y="252" class="t-mono" text-anchor="end">allocate + map</text>
+        </svg>
+        </div>
+        <figcaption>What your install contains: <code>install/lib/libnvshmem_device.a</code>, <code>libnvshmem_host.so.3.9.0</code>, <code>nvshmem_bootstrap_{pmi,pmi2,mpi,uid}.so</code> and <code>nvshmem_transport_ibrc.so</code>. The dashed arrow is the host library copying its state struct into the kernel-visible <code>__constant__</code> symbol.</figcaption>
+      </figure>
+
+      <h3>Where things live in <code>src/</code></h3>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Directory</th><th>What it does</th><th>Lines</th></tr></thead>
+          <tbody>
+            <tr><td class="path">src/include/host/</td><td>Public host API headers. <code>nvshmem_init()</code> is a <code>static inline</code> in <code>nvshmem_api.h</code>.</td><td class="num">1,889</td></tr>
+            <tr><td class="path">src/include/device/</td><td>Public device API, mostly macros that stamp out typed functions (<code>nvshmem_int_p</code> and friends) in <code>nvshmem_defines.h</code>.</td><td class="num">4,167</td></tr>
+            <tr><td class="path">src/include/non_abi/device/</td><td>The real device implementations: <code>common/</code> (p/put/get/quiet), <code>pt-to-pt/</code> (proxy, IBGDA, transport switch), <code>coll/</code> (barrier, reduce …).</td><td class="num">20,630</td></tr>
+            <tr><td class="path">src/device/</td><td>Sources for <code>libnvshmem_device.a</code>: the <code>__constant__</code> state, the device-side init shim, collective launch.</td><td class="num">1,169</td></tr>
+            <tr><td class="path">src/host/init/</td><td><code>init.cu</code>: the whole initialization sequence, device-state upload, CUDA/NVML wrappers.</td><td class="num">2,879</td></tr>
+            <tr><td class="path">src/host/bootstrap/</td><td>Chooses and <code>dlopen</code>s a bootstrap plugin.</td><td class="num">383</td></tr>
+            <tr><td class="path">src/host/mem/</td><td>Symmetric heap: reservation, VMM growth, handle export/import, allocator, transport registration.</td><td class="num">11,788</td></tr>
+            <tr><td class="path">src/host/transport/</td><td>Transport table and connection setup; <code>p2p/</code> is the built-in NVLink/PCIe transport.</td><td class="num">983</td></tr>
+            <tr><td class="path">src/host/proxy/</td><td>The CPU proxy thread that turns GPU requests into network operations.</td><td class="num">1,864</td></tr>
+            <tr><td class="path">src/host/team/, topo/</td><td>Teams (WORLD, NODE, SHARED …) and the per-peer reachability map.</td><td class="num">4,600</td></tr>
+            <tr><td class="path">src/host/coll/, stream/, comm/</td><td>Host-side collectives, <code>*_on_stream</code> launchers, host RMA/quiet/fence.</td><td class="num">3,811</td></tr>
+            <tr><td class="path">src/modules/bootstrap/</td><td>Plugins: PMI/PMI-2 (one source file, two builds), PMIx, MPI, SHMEM, UID.</td><td class="num">8,923</td></tr>
+            <tr><td class="path">src/modules/transport/</td><td>Plugins: <code>ibrc</code>, <code>ibgda</code>, <code>ucx</code>, <code>libfabric</code>, <code>ibdevx</code>, <code>gpunetio</code>, and shared IB code in <code>common/</code>.</td><td class="num">29,573</td></tr>
+            <tr><td class="path">examples/, perftest/, test/</td><td>Sample programs, bandwidth and latency benchmarks, unit and functional tests.</td><td class="num">68,324</td></tr>
+            <tr><td class="path">nvshmem4py/</td><td>Python bindings (the build produces <code>nvshmem4py_cu12/cu13</code> wheels).</td><td class="num">—</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section id="model" class="col">
+      <div class="eyebrow">Overview B</div>
+      <h2>Three ideas that explain the rest</h2>
+
+      <h3>PEs and the symmetric heap</h3>
+      <p>Each process is a <em>PE</em> (processing element) that owns one GPU. <code>nvshmem_malloc</code> is collective: every PE calls it with the same size, in the same order, so the buffer lands at the <strong>same offset</strong> inside every PE's heap. The heaps themselves start at different virtual addresses on different PEs. To reach a peer, NVSHMEM keeps a table of peer base addresses and adds the offset.</p>
+
+      <figure class="diagram">
+        <div class="scroll">
+        <svg viewBox="0 0 760 262" role="img" aria-labelledby="d2t">
+          <title id="d2t">Symmetric address translation between two PEs</title>
+          <defs>
+            <marker id="arrp" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="ah-p2p"/></marker>
+          </defs>
+          <text x="40" y="26" class="t-label">PE 0 · VIRTUAL ADDRESS SPACE</text>
+          <text x="400" y="26" class="t-label">PE 1 · VIRTUAL ADDRESS SPACE</text>
+
+          <rect x="40" y="62" width="150" height="46" rx="6" class="box-accent"/>
+          <text x="48" y="80" class="t-mono">own heap</text>
+          <rect x="206" y="62" width="154" height="46" rx="6" class="box-p2p"/>
+          <text x="214" y="80" class="t-mono">PE 1's heap, mapped</text>
+          <text x="40" y="54" class="t-mono t-accent">heap_base</text>
+          <text x="206" y="54" class="t-mono t-p2p">peer_heap_base_p2p[1]</text>
+
+          <rect x="400" y="62" width="150" height="46" rx="6" class="box-accent"/>
+          <text x="408" y="80" class="t-mono">own heap</text>
+          <rect x="566" y="62" width="154" height="46" rx="6" class="box-p2p"/>
+          <text x="574" y="80" class="t-mono">PE 0's heap, mapped</text>
+          <text x="400" y="54" class="t-mono t-accent">heap_base</text>
+          <text x="566" y="54" class="t-mono t-p2p">peer_heap_base_p2p[0]</text>
+
+          <rect x="104" y="88" width="22" height="14" rx="2" class="marker"/>
+          <rect x="270" y="88" width="22" height="14" rx="2" class="marker"/>
+          <rect x="464" y="88" width="22" height="14" rx="2" class="marker"/>
+          <rect x="630" y="88" width="22" height="14" rx="2" class="marker"/>
+
+          <path d="M40 120 L104 120" class="wire"/>
+          <path d="M40 116 L40 124 M104 116 L104 124" class="wire"/>
+          <text x="72" y="138" text-anchor="middle" class="t-mono">offset</text>
+
+          <path d="M281 108 C 281 196, 475 196, 475 110" class="wire-p2p" marker-end="url(#arrp)"/>
+          <text x="378" y="214" text-anchor="middle" class="t-body t-p2p">same physical memory, reached over NVLink</text>
+
+          <text x="40" y="246" class="t-mono">PE 0 writes to peer 1 at:  peer_heap_base_p2p[1] + (destination − heap_base)</text>
+        </svg>
+        </div>
+        <figcaption>The small blue blocks are <code>destination</code>. Every PE sees it at the same offset. A null entry in <code>peer_heap_base_p2p</code> means that peer is not load/store-reachable, and the operation takes the network path instead. For the network, a second table, <code>peer_heap_base_remote</code>, holds each peer's own <code>heap_base</code>.</figcaption>
+      </figure>
+
+      <h3>Two ways to reach a peer</h3>
+      <div class="grid-2">
+        <div class="card p2p">
+          <h4>Load/store (P2P)</h4>
+          <p>The peer's heap is mapped into your GPU's address space. A put is an ordinary store instruction; the hardware carries it over NVLink. No CPU involvement at all.</p>
+        </div>
+        <div class="card remote">
+          <h4>Network (proxy or IBGDA)</h4>
+          <p>With the proxy, the GPU writes a small request into a ring buffer in pinned host memory, and a CPU thread posts it to InfiniBand. With IBGDA (not in your build), the GPU writes the IB work request itself.</p>
+        </div>
+      </div>
+
+      <h3>State flows from host to device</h3>
+      <p>The host library builds one struct, <code>nvshmemi_device_host_state_t</code> (<span class="mono">src/include/non_abi/device_host/nvshmemi_runtime_types.h:419</span>). It holds <code>mype</code>, <code>npes</code>, <code>heap_base</code>, the two peer-base tables, <code>job_connectivity</code> and the proxy ring pointers. <code>nvshmemi_update_device_state()</code> (<span class="mono">src/host/init/init.cu:216</span>) copies it with <code>cudaMemcpy</code> into the <code>__constant__ nvshmemi_device_state_d</code> symbol that every device function reads.</p>
+    </section>
+
+    <section id="s1" class="col">
+      <div class="step-head"><span class="step-num">STEP 1</span><h2>nvshmem_init()</h2></div>
+      <p class="src-line">dev-guide-ring.cu:23</p>
+      <p>The header inline passes the app's compile-time version into the device library's shim, which hands over to the host library. The host library reads the <code>NVSHMEM_*</code> environment, loads a bootstrap plugin, and uses it to learn the job's size and which PEs share a node.</p>
+
+      <div class="chain-wrap">
+        <div class="label">Call chain</div>
+        <ol class="chain">
+          <li class="hot"><span class="fn">nvshmem_init()</span><span class="loc">src/include/host/nvshmem_api.h:45</span>
+            <span class="what">static inline; builds the app's version and calls into the device library.</span>
+            <ol>
+              <li><span class="fn">nvshmemi_init_thread()</span><span class="loc">src/device/init/init_host.cu:149</span>
+                <span class="what">Lives in libnvshmem_device.a. Passes a callback that returns the address of this binary's <code>__constant__</code> state.</span>
+                <ol>
+                  <li class="hot"><span class="fn">nvshmemid_hostlib_init_attr()</span><span class="loc">src/host/init/init.cu:1454</span>
+                    <span class="what">Entry point into libnvshmem_host.so.</span>
+                    <ol>
+                      <li><span class="fn">nvshmemi_is_version_compatible()</span><span class="loc">init.cu:146</span><span class="what">Rejects a major-version mismatch between app, device lib and host lib.</span></li>
+                      <li><span class="fn">nvshmemi_options_init()</span><span class="loc">src/host/util/env_vars.cpp:53</span><span class="what">Parses every <code>NVSHMEM_*</code> variable into <code>nvshmemi_options</code>.</span></li>
+                      <li><span class="fn">nvshmemi_bootstrap()</span><span class="loc">init.cu:446</span>
+                        <span class="what">Loads the bootstrap and computes node-local ranks.</span>
+                        <ol>
+                          <li><span class="fn">bootstrap_init()</span><span class="loc">src/host/bootstrap/bootstrap.cpp:145</span><span class="what"><code>NVSHMEM_BOOTSTRAP</code> defaults to PMI; <code>NVSHMEM_BOOTSTRAP_PMI</code> picks PMI, PMI-2 or PMIx.</span>
+                            <ol>
+                              <li><span class="fn">bootstrap_loader_init()</span><span class="loc">bootstrap_loader.cpp:94</span><span class="what"><code>dlopen("nvshmem_bootstrap_pmi.so.3")</code>, then <code>dlsym("nvshmemi_bootstrap_plugin_init")</code> and an ABI check.</span>
+                                <ol>
+                                  <li><span class="fn">nvshmemi_bootstrap_plugin_init()</span><span class="loc">src/modules/bootstrap/pmi/bootstrap_pmi.cpp:439</span><span class="what"><code>PMI_Init</code>, then fills rank, size and the allgather / barrier function pointers. Falls back to a singleton job if no launcher is present.</span></li>
+                                </ol>
+                              </li>
+                            </ol>
+                          </li>
+                          <li><span class="fn">allgather(hostHash)</span><span class="loc">init.cu:466-485</span><span class="what">Hashes <code>gethostname()</code>, allgathers it, and counts matches to get <code>mype_node</code> and <code>npes_node</code>.</span></li>
+                        </ol>
+                      </li>
+                      <li><span class="fn">nvshmemi_init_nvshmemi_state()</span><span class="loc">init.cu:561</span><span class="what">Allocates the host state and copies rank, size and node info into it.</span></li>
+                      <li><span class="fn">nvshmemi_try_common_init()</span><span class="loc">init.cu:1411</span>
+                        <span class="what">Tries the full init.</span>
+                        <ol>
+                          <li><span class="fn">nvshmemi_common_init()</span><span class="loc">init.cu:1181</span>
+                            <span class="what">→ <code>nvshmemi_get_cucontext()</code> (init.cu:703): <code>cuCtxGetDevice</code> fails because no GPU is selected yet, so it returns <code>NVSHMEMI_GET_CUCTX_FAILED</code>.</span>
+                          </li>
+                        </ol>
+                        <span class="what">The failure is swallowed ("continuing"), and init returns with only the bootstrap done.</span>
+                      </li>
+                    </ol>
+                  </li>
+                </ol>
+              </li>
+            </ol>
+          </li>
+        </ol>
+      </div>
+
+      <figure class="code">
+<pre><code class="language-cpp">int nvshmemi_try_common_init(nvshmemi_state_t *state, nvshmemx_init_attr_t *attr) {
+    int status = 0;
+
+    status = nvshmemi_common_init(state, attr);
+    if (status == NVSHMEMI_GET_CUCTX_FAILED) {
+        INFO(NVSHMEM_INIT, "nvshmemi_common_init failed, continuing");
+        status = 0;
+    }
+
+    return status;
+}</code></pre>
+        <figcaption>src/host/init/init.cu:1411-1421</figcaption>
+      </figure>
+
+      <div class="note key">
+        <div class="note-title">Initialization happens in two stages here</div>
+        <p>This example calls <code>nvshmem_init()</code> <em>before</em> <code>cudaSetDevice()</code>, so no CUDA context exists yet and NVSHMEM cannot know which GPU to use. It stops after the bootstrap. The heavy part (heap, transports, proxy thread, teams) runs later, inside the first call that needs it: <code>nvshmem_malloc()</code> in <a href="#s3">step 3</a>. If a program selects its GPU first, all of that runs inside <code>nvshmem_init()</code> instead. <code>NVSHMEM_BOOTSTRAP_TWO_STAGE</code> forces the deferred behaviour.</p>
+      </div>
+    </section>
+
+    <section id="s2" class="col">
+      <div class="step-head"><span class="step-num">STEP 2</span><h2>Pick the GPU</h2></div>
+      <p class="src-line">dev-guide-ring.cu:24-26</p>
+      <p><code>nvshmem_team_my_pe(NVSHMEMX_TEAM_NODE)</code> works even though init is half done, because for the NODE team it does not consult a team object at all. It returns the value the bootstrap computed from the host-hash allgather.</p>
+      <figure class="code">
+<pre><code class="language-cpp">int nvshmem_team_my_pe(nvshmem_team_t team) {
+    if (team == NVSHMEM_TEAM_INVALID) { return -1; }
+    else if (team == NVSHMEM_TEAM_WORLD) { return nvshmemi_boot_handle.pg_rank; }
+    else if (team == NVSHMEMX_TEAM_NODE) { return nvshmemi_boot_handle.mype_node; }
+    else { return nvshmemi_team_pool[team]-&gt;my_pe; }
+}</code></pre>
+        <figcaption>src/host/team/team.cu:18-27 (condensed)</figcaption>
+      </figure>
+      <p>On a Beta node with four GPUs, PEs get <code>mype_node</code> 0–3, so <code>cudaSetDevice(mype_node)</code> gives each PE its own GPU. <code>cudaStreamCreate</code> then creates the primary CUDA context that step 3 needs.</p>
+    </section>
+
+    <section id="s3" class="col">
+      <div class="step-head"><span class="step-num">STEP 3</span><h2>nvshmem_malloc(sizeof(int))</h2></div>
+      <p class="src-line">dev-guide-ring.cu:28</p>
+      <p>This call does two jobs. Its first line finishes the initialization deferred in step 1. Then it allocates 4 bytes from the symmetric heap on every PE and ends with a barrier so nobody writes before everyone has allocated.</p>
+
+      <h3>3a · The deferred full initialization</h3>
+      <div class="chain-wrap">
+        <div class="label">Call chain</div>
+        <ol class="chain">
+          <li class="hot"><span class="fn">nvshmem_malloc()</span><span class="loc">src/host/mem/mem_heap.cpp:2289</span>
+            <span class="what">Takes the global mutex, then:</span>
+            <ol>
+              <li><span class="fn">nvshmemi_check_state_and_init()</span><span class="loc">src/host/init/init.cu:1423</span><span class="tag lazy">deferred init</span>
+                <span class="what">Bootstrapped but not initialized, so it calls <code>nvshmemi_common_init()</code> again. This time the context exists.</span>
+                <ol>
+                  <li><span class="fn">nvshmemi_get_cucontext()</span><span class="loc">init.cu:703</span><span class="what">Retains the primary context and creates NVSHMEM's internal stream.</span></li>
+                  <li><span class="fn">nvshmemi_detect_same_device()</span><span class="loc">src/host/topo/topo.cpp:784</span><span class="what">Allgathers each PE's GPU identity (PCIe id, host hash).</span></li>
+                  <li><span class="fn">nvshmemi_init_symmetric_heap()</span><span class="loc">mem_heap.cpp:230</span><span class="what">Creates the heap object: CUDA VMM when available, otherwise <code>cudaMalloc</code>. Reserves address space, but maps no peers yet.</span></li>
+                  <li><span class="fn">nvshmemi_transport_init()</span><span class="loc">src/host/transport/transport.cpp:97</span><span class="what">Initializes the built-in P2P transport, then <code>dlopen</code>s the remote one (<code>nvshmem_transport_ibrc.so</code> by default).</span></li>
+                  <li><span class="fn">nvshmemi_build_transport_map()</span><span class="loc">topo.cpp:695</span><span class="what">Asks each transport <code>can_reach_peer</code> for every PE and allgathers the resulting matrix.</span></li>
+                  <li><span class="fn">nvshmemi_setup_connections()</span><span class="loc">transport.cpp:436</span><span class="what">Each transport's <code>connect_endpoints</code> (IB queue pairs for ibrc), then a bootstrap barrier.</span></li>
+                  <li><span class="fn">nvshmemi_setup_transport()</span><span class="loc">mem_heap.cpp:308</span><span class="what">Allgathers heap bases, maps peers' heaps and registers the heap with IB. Detailed in 3c.</span></li>
+                  <li><span class="fn">nvshmemi_init_device_state()</span><span class="loc">init.cu:2016</span><span class="what">Fills the device state: <code>mype</code>, <code>npes</code>, <code>heap_base</code>, peer tables, proxy level, <code>job_connectivity</code>.</span></li>
+                  <li><span class="fn">nvshmemi_proxy_init()</span><span class="loc">src/host/proxy/proxy.cpp:375</span><span class="what">If any transport needs a proxy, creates the ring buffers and starts the <code>nvshmemi_proxy_progress</code> pthread (proxy.cpp:492).</span></li>
+                  <li><span class="fn">nvshmemi_team_init()</span><span class="loc">src/host/team/team_internal.cpp:1695</span><span class="what">Builds TEAM_WORLD, TEAM_SHARED, TEAM_NODE and the others, with their psync buffers.</span></li>
+                  <li><span class="fn">nvshmemi_update_device_state()</span><span class="loc">init.cu:216</span><span class="what">Copies the finished state into every registered <code>__constant__</code> symbol, then <code>nvshmemi_barrier_all()</code>.</span></li>
+                </ol>
+              </li>
+              <li><span class="fn">heap_malloc()</span><span class="loc">mem_heap.cpp:377</span><span class="what">The allocation proper; see 3b.</span></li>
+              <li><span class="fn">nvshmemi_barrier_all()</span><span class="loc">src/host/coll/barrier/barrier.cpp:17</span><span class="what">quiet + barrier kernel + stream sync, so the buffer exists everywhere before anyone uses it.</span></li>
+            </ol>
+          </li>
+        </ol>
+      </div>
+
+      <h3>3b · Carving the buffer</h3>
+      <div class="chain-wrap">
+        <div class="label">Call chain</div>
+        <ol class="chain">
+          <li><span class="fn">heap_malloc(size)</span><span class="loc">mem_heap.cpp:377</span>
+            <ol>
+              <li><span class="fn">heap_allocate()</span><span class="loc">mem_heap.cpp:392</span><span class="what">With <code>NVSHMEM_ENABLE_ERROR_CHECKS</code>, allgathers the size to verify every PE asked for the same amount.</span>
+                <ol>
+                  <li><span class="fn">allocate_symmetric_memory()</span><span class="loc">mem_heap.cpp:1598</span><span class="what">First-fit search in the heap's <code>mspace</code> (free-chunk maps in <code>custom_malloc.cpp</code>).</span>
+                    <ol>
+                      <li><span class="fn">allocate_physical_memory_to_heap()</span><span class="loc">mem_heap.cpp:1438</span><span class="what">VMM heap only, and only when the mspace is full (it starts empty): <code>cuMemCreate</code> + <code>cuMemMap</code> + <code>cuMemSetAccess</code> a new chunk (512 MiB granularity by default), export it to every P2P peer, register it with IB, then a barrier. All PEs hit this at the same allocation because allocation is deterministic.</span></li>
+                    </ol>
+                  </li>
+                </ol>
+              </li>
+            </ol>
+          </li>
+        </ol>
+      </div>
+
+      <h3>3c · How peers' heaps get mapped</h3>
+      <p>This is what fills the <code>peer_heap_base_p2p</code> table from the core ideas. With the VMM heap (the default on these GPUs):</p>
+      <ul class="plain">
+        <li><strong>Reserve.</strong> Each PE reserves one large virtual range holding a slot per P2P-reachable PE (<code>cuMemAddressReserve</code>, mem_heap.cpp:971). Slot 0 is its own heap.</li>
+        <li><strong>Plan.</strong> <code>plan_vmm_peer_bases()</code> (heap_registration.cpp:672) gives each load/store-reachable peer the next slot and records it in <code>peer_heap_base_p2p</code>.</li>
+        <li><strong>Export.</strong> <code>export_p2p_memory()</code> (heap_registration.cpp:427) turns each physical chunk into a shareable handle. On an NVLink-fabric system such as GB200 NVL72 this is a <code>CU_MEM_HANDLE_TYPE_FABRIC</code> handle; otherwise a POSIX file descriptor sent over a Unix socket. The choice is made in mem_transport.cpp:384.</li>
+        <li><strong>Import and map.</strong> <code>map_p2p_memory()</code> (heap_registration.cpp:211-349) imports each peer's handle and <code>cuMemMap</code>s it at the same offset inside that peer's slot.</li>
+        <li><strong>Register for the network.</strong> <code>register_remote_chunk()</code> (heap_registration.cpp:473) calls the IB transport's <code>get_mem_handle</code> (<code>ibv_reg_dmabuf_mr</code> or <code>ibv_reg_mr</code>) and allgathers the resulting rkeys.</li>
+      </ul>
+      <figure class="code">
+<pre><code class="language-cpp">for (int i = ((mype_ + 1) % npes_); i != mype_; i = ((i + 1) % npes_)) {
+    for (int j = 0; j &lt; transports_.num_transports(); j++) {
+        if (!transports_.active_between_has_cap(mype_, i, npes_, j,
+                                                NVSHMEM_TRANSPORT_CAP_MAP)) {
+            continue;
+        }
+        void *peer_base = (void *)((uintptr_t)geometry_.global_heap_base +
+                                   geometry_.logical_heap_size * p2p_counter++);
+        peer_heap_base_p2p_[i] = peer_base;</code></pre>
+        <figcaption>src/host/mem/heap_registration.cpp:676-684. Peers without the MAP capability keep a null entry, and the device code routes them to the network.</figcaption>
+      </figure>
+    </section>
+
+    <section id="s4" class="col">
+      <div class="step-head"><span class="step-num">STEP 4</span><h2>simple_shift → nvshmem_int_p</h2></div>
+      <p class="src-line">dev-guide-ring.cu:11-17, 30</p>
+      <p><code>nvshmem_my_pe()</code> and <code>nvshmem_n_pes()</code> are one load each from constant memory: <code>nvshmemi_device_state_d.mype</code> and <code>.npes</code> (src/include/device/nvshmem_defines.h:51-57). The interesting part is the put.</p>
+
+      <figure class="diagram">
+        <div class="scroll">
+        <svg viewBox="0 0 760 320" role="img" aria-labelledby="d3t">
+          <title id="d3t">Paths taken by nvshmem_int_p</title>
+          <defs>
+            <marker id="arr3" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="ah"/></marker>
+            <marker id="arr3p" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="ah-p2p"/></marker>
+            <marker id="arr3r" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="ah-remote"/></marker>
+          </defs>
+          <rect x="16" y="128" width="176" height="62" rx="8" class="box-accent"/>
+          <text x="28" y="153" class="t-head">nvshmem_int_p</text>
+          <text x="28" y="174" class="t-mono">(dest, mype, peer)</text>
+
+          <rect x="222" y="128" width="170" height="62" rx="8" class="box"/>
+          <text x="234" y="153" class="t-head">nvshmemi_p</text>
+          <text x="234" y="174" class="t-mono">peer base ≠ null ?</text>
+          <path d="M192 159 L220 159" class="wire" marker-end="url(#arr3)"/>
+
+          <rect x="428" y="20" width="316" height="84" rx="8" class="box-p2p"/>
+          <text x="442" y="46" class="t-head t-p2p">P2P · one store instruction</text>
+          <text x="442" y="68" class="t-mono">*dest_actual = value;</text>
+          <text x="442" y="88" class="t-body">GPU → NVLink / NVLink fabric → peer HBM</text>
+          <path d="M307 128 L307 62 L426 62" class="wire-p2p" marker-end="url(#arr3p)"/>
+          <text x="316" y="112" class="t-mono t-p2p">yes</text>
+
+          <rect x="428" y="160" width="150" height="112" rx="8" class="box-remote"/>
+          <text x="440" y="184" class="t-head t-remote">GPU side</text>
+          <text x="440" y="204" class="t-body">reserve 24 B in ring</text>
+          <text x="440" y="222" class="t-body">write 3 × 8 B entries</text>
+          <text x="440" y="240" class="t-body">each with a phase flag</text>
+          <text x="440" y="260" class="t-mono">transfer_inline()</text>
+
+          <rect x="594" y="160" width="150" height="112" rx="8" class="box-remote"/>
+          <text x="606" y="184" class="t-head t-remote">CPU proxy</text>
+          <text x="606" y="204" class="t-body">sees flag flip</text>
+          <text x="606" y="222" class="t-body">host_ops.rma()</text>
+          <text x="606" y="240" class="t-body">RDMA write, inline</text>
+          <text x="606" y="260" class="t-mono">ibv_post_send()</text>
+          <path d="M578 216 L592 216" class="wire-remote" marker-end="url(#arr3r)"/>
+
+          <path d="M307 190 L307 216 L426 216" class="wire-remote" marker-end="url(#arr3r)"/>
+          <text x="316" y="236" class="t-mono t-remote">no → proxy</text>
+          <text x="428" y="300" class="t-mono">IBGDA branch (GPU posts the IB request itself): compiled out in your build</text>
+        </svg>
+        </div>
+        <figcaption>The branch is taken per call, per peer. Which remote path is compiled in depends on build flags; which one runs is picked at init and stored in <code>selected_device_transport</code>.</figcaption>
+      </figure>
+
+      <div class="chain-wrap">
+        <div class="label">Call chain</div>
+        <ol class="chain">
+          <li class="hot"><span class="fn">nvshmem_int_p()</span><span class="loc">src/include/device/nvshmem_defines.h:78-83</span>
+            <span class="what">Generated by <code>NVSHMEMI_TYPENAME_P_IMPL</code> for every standard type; forwards to the template.</span>
+            <ol>
+              <li><span class="fn">nvshmemi_p&lt;int&gt;()</span><span class="loc">src/include/non_abi/device/common/nvshmemi_common_device.cuh:1421</span>
+                <span class="what">Loads <code>peer_heap_base_p2p[pe]</code> and checks <code>nvshmemi_peer_reachable()</code> (nvshmemi_path_predicates.cuh:54: the pointer is non-null).</span>
+                <ol>
+                  <li class="p2p"><span class="fn">*dest_actual = value</span><span class="tag p2p">P2P</span><span class="loc">nvshmemi_common_device.cuh:1426-1428</span><span class="what">Translate the address, then an ordinary store. Done.</span></li>
+                  <li class="remote"><span class="fn">nvshmemi_transfer_rma_p()</span><span class="tag remote">remote</span><span class="loc">src/include/non_abi/device/pt-to-pt/transfer_device.cuh.in:96</span>
+                    <span class="what">Switch on <code>selected_device_transport</code>: IBGDA, GPUNetIO, or PROXY (the default).</span>
+                    <ol>
+                      <li class="remote"><span class="fn">nvshmemi_proxy_rma_p()</span><span class="loc">pt-to-pt/proxy_device.cuh:689</span>
+                        <ol>
+                          <li><span class="fn">transfer_inline&lt;int&gt;()</span><span class="loc">proxy_device.cuh:624</span>
+                            <span class="what"><code>nvshmemi_proxy_channel_reserve()</code> (:54) atomically bumps a 64-bit byte counter; <code>check_channel_availability()</code> (:61) spins while the 4 MiB ring is full; then it writes three 8-byte entries.</span>
+                          </li>
+                        </ol>
+                      </li>
+                    </ol>
+                  </li>
+                </ol>
+              </li>
+            </ol>
+          </li>
+        </ol>
+      </div>
+
+      <figure class="code">
+<pre><code class="language-cpp">template &lt;typename T&gt;
+__device__ NVSHMEMI_DEVICE_ALWAYS_INLINE void nvshmemi_p(
+    T *dest, const T value, int pe, nvshmemx_qp_handle_t qp_index = NVSHMEMX_QP_DEFAULT) {
+    const void *peer_base_addr =
+        (void *)__ldg((const long long unsigned *)nvshmemi_device_state_d.peer_heap_base_p2p + pe);
+    if (nvshmemi_peer_reachable(peer_base_addr) &amp;&amp; !nvshmemi_is_le_supported_and_prioritized(pe)) {
+        T *dest_actual = (T *)((char *)(peer_base_addr) +
+                               ((char *)dest - (char *)(nvshmemi_device_state_d.heap_base)));
+        *dest_actual = value;
+    /* ... logical-endpoint branch, sm_100+ with CUDA 13.3+ only ... */
+    } else {
+        nvshmemi_transfer_rma_p&lt;T&gt;((void *)dest, value, pe, qp_index);
+    }
+}</code></pre>
+        <figcaption>src/include/non_abi/device/common/nvshmemi_common_device.cuh:1420-1440. The whole P2P path is these few lines, inlined into your kernel.</figcaption>
+      </figure>
+
+      <h3>The proxy, from the GPU's request to the wire</h3>
+      <p>At init, <code>nvshmemi_proxy_create_channels()</code> (proxy.cpp:272) allocates the ring and its counters in pinned host memory with <code>cudaMallocHost</code>, so the GPU can write them and the CPU can poll them. The GPU writes each entry's flag byte last; the CPU reads an entry only after the flag matches the current lap around the ring.</p>
+      <figure class="code">
+<pre><code class="language-cpp">idx = nvshmemi_proxy_channel_reserve(size);          // size = PROXY_INLINE_REQ_BYTES (24)
+tail_idx = idx + (size - 1);
+check_channel_availability(tail_idx);
+req = (uint64_t *)((uint8_t *)buf_ptr + (idx &amp; (CHANNEL_BUF_SIZE - 1)));
+uint64_t curr_flag = !((idx &gt;&gt; nvshmemi_device_state_d.proxy_channel_buf_logsize) &amp; 1);
+uint64_t roffset = (uint64_t)((char *)rptr - (char *)base_ptr);
+*((volatile uint64_t *)req) =
+    (uint64_t)((roffset &lt;&lt; 24) | (op &lt;&lt; 16) | (group_size &lt;&lt; 8) | curr_flag);
+/* two more entries follow: the value and the target PE, each with the same flag */</code></pre>
+        <figcaption>src/include/non_abi/device/pt-to-pt/proxy_device.cuh:634-666 (abridged). Only the heap <em>offset</em> travels; the CPU adds the peer's base.</figcaption>
+      </figure>
+
+      <div class="chain-wrap">
+        <div class="label">CPU proxy thread</div>
+        <ol class="chain">
+          <li><span class="fn">nvshmemi_proxy_progress()</span><span class="loc">src/host/proxy/proxy.cpp:1667</span><span class="what">Sets the CUDA context, then loops <code>progress()</code> until stopped.</span>
+            <ol>
+              <li><span class="fn">progress()</span><span class="loc">proxy.cpp:1646</span><span class="what">In order: global exit, quiet requests, consistency requests, channels, transports.</span>
+                <ol>
+                  <li><span class="fn">progress_channels()</span><span class="loc">proxy.cpp:1426</span><span class="what">Compares the flag byte at <code>processed</code> with the expected lap, then dispatches on <code>op</code>.</span>
+                    <ol>
+                      <li class="remote"><span class="fn">process_channel_inline()</span><span class="loc">proxy.cpp:633</span><span class="what">Rebuilds offset, PE and value; translates the address (:689); calls the transport's <code>rma</code> (:706); advances <code>processed</code> by 24.</span>
+                        <ol>
+                          <li class="remote"><span class="fn">nvshmemt_ibrc_rma()</span><span class="loc">src/modules/transport/ibrc/ibrc.cpp:1378</span><span class="what"><code>IBV_WR_RDMA_WRITE</code> with <code>IBV_SEND_INLINE</code> for a <code>p</code>, then <code>ibv_post_send</code> (:1444).</span></li>
+                        </ol>
+                      </li>
+                    </ol>
+                  </li>
+                </ol>
+              </li>
+            </ol>
+          </li>
+        </ol>
+      </div>
+      <p>Two counters close the loop. <code>proxy_update_processed()</code> (proxy.cpp:159) publishes progress to <code>complete</code> only every 1 KiB, which is enough for ring flow control. Completion for <code>nvshmem_quiet</code> uses a separate handshake: the GPU raises <code>quiet_issue</code>, the proxy drains the ring, calls the transport's <code>quiet</code> for every PE, and writes <code>quiet_ack</code> (<code>progress_quiet()</code>, proxy.cpp:960).</p>
+    </section>
+
+    <section id="s5" class="col">
+      <div class="step-head"><span class="step-num">STEP 5</span><h2>nvshmemx_barrier_all_on_stream(stream)</h2></div>
+      <p class="src-line">dev-guide-ring.cu:31</p>
+      <p>The barrier is itself a kernel, queued on the same stream after <code>simple_shift</code>. That stream order is what lets the host return immediately while the GPU still guarantees the put lands before anyone reads.</p>
+
+      <div class="chain-wrap">
+        <div class="label">Call chain</div>
+        <ol class="chain">
+          <li class="hot"><span class="fn">nvshmemx_barrier_all_on_stream()</span><span class="loc">src/host/coll/barrier/barrier_on_stream.cpp:74</span>
+            <ol>
+              <li><span class="fn">nvshmemxi_barrier_on_stream(TEAM_WORLD)</span><span class="loc">barrier_on_stream.cpp:83</span>
+                <ol>
+                  <li><span class="fn">nvshmemi_quiesce_internal_streams()</span><span class="loc">src/host/comm/quiet.cpp:77</span><span class="what">Makes the user stream wait (by event) for NVSHMEM's internal streams.</span></li>
+                  <li><span class="fn">nvshmemi_call_barrier_on_stream_kernel()</span><span class="loc">src/host/stream/coll/barrier/barrier.cu:52</span><span class="what">Launches one block, with a warp- or block-scoped variant depending on team size. Detects CUDA-graph capture.</span>
+                    <ol>
+                      <li class="hot"><span class="fn">barrier_on_stream_kernel_threadgroup()</span><span class="loc">barrier.cu:13</span><span class="what">Runs on the GPU:</span>
+                        <ol>
+                          <li class="remote"><span class="fn">nvshmemi_transfer_quiet()</span><span class="loc">barrier.cu:20-22</span><span class="what">Only if the job uses remote atomics or the proxy; waits for outstanding network puts.</span></li>
+                          <li><span class="fn">nvshmemi_sync_algo_threadgroup()</span><span class="loc">src/include/non_abi/device/coll/barrier.cuh:225</span><span class="what">Picks a radix-k dissemination barrier; for an all-NVLink team at block scope, k = team size (one round).</span>
+                            <ol>
+                              <li><span class="fn">sync_dissem_pow2_threadgroup()</span><span class="loc">barrier.cuh:26</span><span class="what">Each round: signal k−1 neighbours, then wait for k−1 neighbours, on a symmetric psync array.</span>
+                                <ol>
+                                  <li><span class="fn">nvshmemi_signal_for_barrier()</span><span class="loc">coll/utils.cuh:45</span><span class="what">A <code>volatile</code> P2P store if <em>every</em> peer is load/store-reachable; otherwise a network atomic for every peer, because NVLink writes could overtake IB writes.</span></li>
+                                </ol>
+                              </li>
+                            </ol>
+                          </li>
+                          <li class="remote"><span class="fn">nvshmemi_transfer_enforce_consistency_at_target()</span><span class="loc">barrier.cu:34-36</span><span class="what">Only when the job uses the proxy with extra consistency requirements.</span></li>
+                        </ol>
+                      </li>
+                    </ol>
+                  </li>
+                </ol>
+              </li>
+            </ol>
+          </li>
+        </ol>
+      </div>
+
+      <figure class="code">
+<pre><code class="language-cpp">volatile long *sync_counter = (volatile long *)nvshmemi_team_get_sync_counter(teami);
+volatile long *pSync = (volatile long *)nvshmemi_team_get_psync(teami, SYNC) +
+                       NVSHMEMI_SYNC_SIZE * (sync_counter[0] % 2);
+    for (int j = myIdx + 1; j &lt;= k - 1; j += groupSize) {       /* notify */
+        to_nbr = nvshmemi_team_translate_pe_to_team_world_wrap(teami, teami-&gt;my_pe + (j &lt;&lt; phase_num));
+        nvshmemi_signal_for_barrier&lt;long&gt;(
+            get_pe_sync_addr(sync_arr, nvshmemi_device_state_d.mype), counter[0], to_nbr);
+    ...                                                          /* wait */
+        nvshmemi_wait_until_greater_than_equals&lt;long&gt;(
+            get_pe_sync_addr(sync_arr, from_nbr), counter[0], NVSHMEMI_CALL_SITE_BARRIER_WARP);
+if (!myIdx) { sync_counter[0] = sync_counter[0] + 1; }</code></pre>
+        <figcaption>src/include/non_abi/device/coll/barrier.cuh (excerpts from lines 31-80). The <code>% 2</code> alternates between two psync buffers, so back-to-back barriers do not trample each other's signals.</figcaption>
+      </figure>
+    </section>
+
+    <section id="s6" class="col">
+      <div class="step-head"><span class="step-num">STEP 6</span><h2>Read, free, finalize</h2></div>
+      <p class="src-line">dev-guide-ring.cu:32-38</p>
+      <p><code>cudaMemcpyAsync</code> is plain CUDA: <code>destination</code> is ordinary device memory in this PE's own heap, and the stream order puts the copy after the barrier. So each PE prints the rank of its left neighbour.</p>
+
+      <div class="chain-wrap">
+        <div class="label">Call chains</div>
+        <ol class="chain">
+          <li><span class="fn">nvshmem_free()</span><span class="loc">src/host/mem/mem_heap.cpp:2366</span><span class="what">Barrier <em>first</em>, so no peer is still writing, then <code>heap_deallocate()</code> (:411) returns the chunk to the mspace. Physical memory stays mapped until finalize.</span></li>
+          <li class="hot"><span class="fn">nvshmem_finalize()</span><span class="loc">src/include/host/nvshmem_api.h:66</span>
+            <ol>
+              <li><span class="fn">nvshmemi_finalize()</span><span class="loc">src/device/init/init_host.cu:181</span>
+                <ol>
+                  <li><span class="fn">nvshmemid_hostlib_finalize()</span><span class="loc">src/host/init/init.cu:1570</span><span class="what">barrier_all + quiet + device sync; then tears down teams, the proxy thread (proxy.cpp:1710), collectives, the heap (unmap, deregister) and transports, in that order.</span></li>
+                </ol>
+              </li>
+              <li><span class="fn">bootstrap_finalize()</span><span class="loc">src/host/bootstrap/bootstrap.cpp:252</span><span class="what">Registered with <code>atexit</code> during init; finalizes the plugin and <code>dlclose</code>s it.</span></li>
+            </ol>
+          </li>
+        </ol>
+      </div>
+    </section>
+
+    <section id="beta" class="col">
+      <div class="eyebrow">Overview C</div>
+      <h2>What happens on Beta (GB200 NVL72)</h2>
+      <p>Your build (<code>build/CMakeCache.txt</code>) has <code>NVSHMEM_IBGDA_SUPPORT=OFF</code>, <code>UCX</code> and <code>libfabric</code> off, GDRCopy on, and installs one remote transport, <code>ibrc</code>. With that build, step 4 takes one of two paths.</p>
+      <div class="grid-2">
+        <div class="card p2p">
+          <h4>All PEs in one rack</h4>
+          <p>Up to 18 nodes × 4 GPUs share one NVLink domain. The P2P transport's <code>can_reach_peer</code> grants load/store access across nodes when the peer is on the NVLink fabric (src/host/transport/p2p/p2p.cpp:56-61), heap chunks are shared with fabric handles, and <code>nvshmem_int_p</code> is a single store even to a GPU on another node. The barrier signals are stores too, with no quiet.</p>
+        </div>
+        <div class="card remote">
+          <h4>PEs span racks</h4>
+          <p>Peers in other racks have null <code>peer_heap_base_p2p</code> entries, so puts to them go through the proxy thread and <code>ibrc</code>. Because the job is no longer load/store-only, every barrier signal becomes a network atomic and the barrier kernel starts with a quiet.</p>
+        </div>
+      </div>
+      <div class="note key">
+        <div class="note-title">Known problem on node b4-31-s1-dgx-04-c12 (seen 2026-09-25)</div>
+        <p>On this node, creating fabric-handle memory (<code>cuMemCreate</code> with <code>CU_MEM_HANDLE_TYPE_FABRIC</code>) fails with <code>CUDA_ERROR_NOT_PERMITTED</code>. The IMEX channel device node has the wrong major number, which only the admins can fix. NVSHMEM picks fabric handles automatically on GB200, so <code>nvshmem_malloc</code> fails there. For single-node runs, set <code>NVSHMEM_CUMEM_HANDLE_TYPE=FILE_DESCRIPTOR</code>. Cross-node NVLink runs, as described in the "All PEs in one rack" case above, need the admin fix first. To check whether it is still broken, compare <code>grep imex /proc/devices</code> with <code>ls -l /dev/nvidia-caps-imex-channels/</code>.</p>
+      </div>
+      <p>To watch these decisions at run time, set <code>NVSHMEM_DEBUG=INFO</code>; lines such as <code>nvshmemi_common_init failed, continuing</code> (step 1) and the P2P transport's per-peer reachability messages come from the <code>INFO(...)</code> calls cited above. <code>NVSHMEM_INFO=true</code> prints every environment setting in effect. To get GPU-initiated InfiniBand instead of the proxy, rebuild with <code>-DNVSHMEM_IBGDA_SUPPORT=ON</code> and run with <code>NVSHMEM_IB_ENABLE_IBGDA=1</code>.</p>
+    </section>
+
+    <section id="findings" class="col">
+      <div class="eyebrow">Overview D</div>
+      <h2>Surprises in the trace</h2>
+      <p>These are details that differ from what the API docs or intuition suggest.</p>
+      <ul class="plain">
+        <li><strong>Init can be lazy.</strong> In this example most of the work in "init" happens in <code>nvshmem_malloc</code>, because the GPU is chosen after <code>nvshmem_init()</code>. Timing <code>nvshmem_init()</code> alone is misleading.</li>
+        <li><strong>Heaps do not share a base address.</strong> Symmetry is by offset. Two tables do the translation: <code>peer_heap_base_p2p</code> (where a peer's heap is mapped in <em>my</em> address space) and <code>peer_heap_base_remote</code> (the peer's own base, used for IB).</li>
+        <li><strong>The P2P put is a plain store,</strong> not a <code>volatile</code> one (nvshmemi_common_device.cuh:1428). Ordering comes from quiet, fence and the barrier.</li>
+        <li><strong>The on-stream barrier skips quiet in all-NVLink jobs</strong> (barrier.cu:20-22). In this example, the stores from <code>simple_shift</code> are ordered before the barrier by the kernel boundary on the same stream. That is our reading of the code, not something it states.</li>
+        <li><strong>A static heap cannot grow.</strong> With <code>NVSHMEM_DISABLE_CUDA_VMM=1</code>, running out of heap makes <code>nvshmem_malloc</code> return <code>NULL</code> without its final barrier (mem_heap.cpp:2303-2305). Size the heap with <code>NVSHMEM_SYMMETRIC_SIZE</code> in that mode.</li>
+        <li><strong>Two copies of the device state exist.</strong> libnvshmem_host.so links its own copy of the device library for the kernels it launches (barriers, collectives), and your binary has another. <code>nvshmemi_update_device_state()</code> writes both through registered callbacks.</li>
+      </ul>
+    </section>
+
+    <footer class="col">
+      Traced from the NVSHMEM source in <code>~/nvshmem</code> (branch <code>devel</code>, commit 7bb2e99, version 3.9.0.dev0). Line numbers refer to that tree. <code>transfer_device.cuh</code> is generated from <code>transfer_device.cuh.in</code> at build time; citations use the tracked <code>.in</code> file, whose line numbers match.
+    </footer>
+  </main>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+<script>
+  try { if (window.hljs) { hljs.highlightAll(); } } catch (e) { /* plain code is fine */ }
+</script>

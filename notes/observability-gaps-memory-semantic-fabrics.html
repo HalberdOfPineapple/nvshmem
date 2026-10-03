@@ -1,0 +1,439 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Observability Gaps in Memory-Semantic Fabrics</title>
+<meta name="description" content="What FabricPerf measures, what it structurally cannot, and which blind spots are general to memory-semantic scale-up networks, with NVSHMEM as the lens.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans+Condensed:wght@500;600;700&family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;1,400&display=swap">
+<style>
+:root {
+  --bg: #F5F6F8; --surface: #FFFFFF; --surface-2: #ECEFF3; --ink: #17202A; --muted: #5A6572;
+  --line: #D5DBE2; --accent: #2B59C3; --accent-soft: #E3EAFA;
+  --ok: #11806E; --ok-soft: #DDF2EE; --warn: #B0620B; --warn-soft: #FBEBD8;
+  --bad: #B42A2A; --bad-soft: #F9E1E1; --type: #7446B5; --type-soft: #EDE5F8; --code-bg: #EEF1F5;
+  --font-body: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-head: "IBM Plex Sans Condensed", "Arial Narrow", system-ui, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --bg: #0E1318; --surface: #151C23; --surface-2: #1C252F; --ink: #E3E8EE; --muted: #97A2AE;
+    --line: #2B3541; --accent: #8AABFF; --accent-soft: #1D2A48;
+    --ok: #4FC8B2; --ok-soft: #123330; --warn: #E8A650; --warn-soft: #3A2A14;
+    --bad: #F08A8A; --bad-soft: #3D1B1B; --type: #C4A7F4; --type-soft: #2A2040; --code-bg: #111920;
+  }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #0E1318; --surface: #151C23; --surface-2: #1C252F; --ink: #E3E8EE; --muted: #97A2AE;
+  --line: #2B3541; --accent: #8AABFF; --accent-soft: #1D2A48;
+  --ok: #4FC8B2; --ok-soft: #123330; --warn: #E8A650; --warn-soft: #3A2A14;
+  --bad: #F08A8A; --bad-soft: #3D1B1B; --type: #C4A7F4; --type-soft: #2A2040; --code-bg: #111920;
+}
+* { box-sizing: border-box; }
+body { background: var(--bg); color: var(--ink); font-family: var(--font-body); font-size: 16px; line-height: 1.6; margin: 0; padding: 0 16px 64px; }
+.layout { max-width: 1180px; margin: 0 auto; display: grid; grid-template-columns: 230px minmax(0,1fr); gap: 48px; }
+@media (max-width: 960px) { .layout { grid-template-columns: minmax(0,1fr); gap: 0; } }
+nav.toc { position: sticky; top: 0; align-self: start; padding: 40px 0 24px; font-size: 14px; }
+nav.toc .label { font-family: var(--font-head); text-transform: uppercase; letter-spacing: .08em; font-size: 12px; color: var(--muted); margin-bottom: 10px; }
+nav.toc ol { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; }
+nav.toc a { display: grid; grid-template-columns: 30px 1fr; gap: 4px; padding: 5px 8px; border-radius: 6px; color: var(--ink); text-decoration: none; }
+nav.toc a:hover { background: var(--surface-2); }
+nav.toc a .n { font-family: var(--font-mono); color: var(--muted); font-size: 12px; padding-top: 2px; }
+@media (max-width: 960px) { nav.toc { position: static; padding: 24px 0 0; } nav.toc ol { grid-template-columns: repeat(auto-fill, minmax(190px,1fr)); } }
+main { min-width: 0; padding-top: 40px; }
+.col { max-width: 860px; }
+h1,h2,h3 { font-family: var(--font-head); line-height: 1.15; text-wrap: balance; }
+h1 { font-size: clamp(32px,5vw,48px); font-weight: 700; margin: 0 0 12px; letter-spacing: -.01em; }
+h2 { font-size: 28px; font-weight: 700; margin: 56px 0 8px; padding-top: 8px; border-top: 1px solid var(--line); }
+h3 { font-size: 19px; font-weight: 600; margin: 30px 0 8px; }
+p { margin: 0 0 14px; }
+.lede { font-size: 18px; color: var(--muted); }
+.meta { font-size: 13px; color: var(--muted); font-family: var(--font-mono); margin-bottom: 28px; }
+code { font-family: var(--font-mono); font-size: .88em; background: var(--code-bg); padding: 1px 5px; border-radius: 4px; }
+table { border-collapse: collapse; width: 100%; font-size: 14px; margin: 14px 0 20px; }
+th, td { text-align: left; vertical-align: top; padding: 8px 10px; border-bottom: 1px solid var(--line); }
+th { font-family: var(--font-head); font-size: 13px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); }
+.card { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 18px 20px; margin: 16px 0 22px; }
+.callout { border-left: 4px solid var(--accent); background: var(--accent-soft); padding: 12px 16px; border-radius: 0 8px 8px 0; margin: 16px 0; }
+.rq { border-left: 4px solid var(--type); background: var(--type-soft); padding: 12px 16px; border-radius: 0 8px 8px 0; margin: 16px 0; }
+.rq b { color: var(--type); }
+.tag { display: inline-block; font-family: var(--font-mono); font-size: 11px; padding: 1px 7px; border-radius: 999px; border: 1px solid var(--line); margin-right: 4px; }
+.tag.ok { background: var(--ok-soft); color: var(--ok); border-color: transparent; }
+.tag.warn { background: var(--warn-soft); color: var(--warn); border-color: transparent; }
+.tag.bad { background: var(--bad-soft); color: var(--bad); border-color: transparent; }
+figure { margin: 18px 0 24px; }
+figure svg { width: 100%; height: auto; display: block; background: var(--surface); border: 1px solid var(--line); border-radius: 10px; }
+figcaption { font-size: 13px; color: var(--muted); margin-top: 8px; }
+svg text { font-family: var(--font-body); font-size: 12px; fill: var(--ink); }
+svg .mono { font-family: var(--font-mono); font-size: 11px; }
+svg .small { font-size: 10.5px; fill: var(--muted); }
+svg .head { font-family: var(--font-head); font-size: 13px; font-weight: 600; }
+svg .box { fill: var(--surface-2); stroke: var(--line); }
+svg .box-ok { fill: var(--ok-soft); stroke: var(--ok); }
+svg .box-warn { fill: var(--warn-soft); stroke: var(--warn); }
+svg .box-bad { fill: var(--bad-soft); stroke: var(--bad); }
+svg .box-acc { fill: var(--accent-soft); stroke: var(--accent); }
+svg .ln { stroke: var(--ink); stroke-width: 1.4; fill: none; }
+svg .ln-acc { stroke: var(--accent); stroke-width: 1.6; fill: none; }
+svg .ln-warn { stroke: var(--warn); stroke-width: 1.6; fill: none; }
+svg .ln-bad { stroke: var(--bad); stroke-width: 1.6; fill: none; stroke-dasharray: 5 4; }
+svg .ln-mut { stroke: var(--muted); stroke-width: 1; fill: none; stroke-dasharray: 3 3; }
+svg .fill-acc { fill: var(--accent); } svg .fill-warn { fill: var(--warn); } svg .fill-bad { fill: var(--bad); } svg .fill-ok { fill: var(--ok); } svg .fill-mut { fill: var(--muted); }
+.grid2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px,1fr)); gap: 14px; margin: 14px 0 20px; }
+.gap { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px; }
+.gap .k { font-family: var(--font-head); font-weight: 600; font-size: 16px; margin-bottom: 4px; }
+.gap .k span { color: var(--muted); font-family: var(--font-mono); font-size: 12px; margin-right: 6px; }
+ul { padding-left: 22px; } li { margin-bottom: 6px; }
+</style>
+</head>
+<body>
+<div class="layout">
+<nav class="toc">
+  <div class="label">Contents</div>
+  <ol>
+    <li><a href="#s0"><span class="n">0</span><span>Short version</span></a></li>
+    <li><a href="#s1"><span class="n">1</span><span>What FabricPerf measures</span></a></li>
+    <li><a href="#s2"><span class="n">2</span><span>Research gaps</span></a></li>
+    <li><a href="#g1"><span class="n">2.1</span><span>No canonical packet</span></a></li>
+    <li><a href="#g2"><span class="n">2.2</span><span>Arrival is not an event</span></a></li>
+    <li><a href="#g3"><span class="n">2.3</span><span>Fence as sensor</span></a></li>
+    <li><a href="#g4"><span class="n">2.4</span><span>Reads and atomics</span></a></li>
+    <li><a href="#g5"><span class="n">2.5</span><span>In-fabric operations</span></a></li>
+    <li><a href="#g6"><span class="n">2.6</span><span>Address-hashed contention</span></a></li>
+    <li><a href="#g7"><span class="n">2.7</span><span>Paths and fall-backs</span></a></li>
+    <li><a href="#g8"><span class="n">2.8+</span><span>Cost, SIMT, fusion, zero-copy</span></a></li>
+    <li><a href="#s3"><span class="n">3</span><span>Where this points</span></a></li>
+    <li><a href="#s4"><span class="n">4</span><span>NVSHMEM hooks on Beta</span></a></li>
+    <li><a href="#s5"><span class="n">5</span><span>One-page comparison</span></a></li>
+  </ol>
+</nav>
+<main><div class="col">
+
+<h1>Observability Gaps in Memory-Semantic Scale-Up Networking</h1>
+<p class="lede">What FabricPerf measures, what it structurally cannot, and which of those blind spots are general properties of load/store fabrics rather than quirks of one library. NVSHMEM is the lens because it exposes the fabric's raw primitives (stores, loads, atomics, fences, multicast, bulk-copy engines, network fall-backs) instead of one fixed protocol.</p>
+<div class="meta">Sources: FabricPerf (Huang &amp; Wu, SIGCOMM '26) · Demystifying NVSHMEM (Ma, Shen et al., arXiv 2606.05951) · NVSHMEM devel @ 7bb2e99 · Markdown version: observability-gaps-memory-semantic-fabrics.md · 2026-09-29</div>
+
+<h2 id="s0">0. The short version</h2>
+<p>FabricPerf turns "measure the scale-up network" into "profile the NCCL communication kernel": it timestamps five landmarks of NCCL's data-then-fence-then-flag protocol inside the kernel, synchronises GPU clocks with a PTP-style handshake (GPTP), and models fabric traffic as memory traffic so CUPTI counters can be reused. It is a good first step that silently assumes six things true of NCCL ring kernels and false of memory-semantic fabrics in general.</p>
+
+<figure>
+<svg viewBox="0 0 860 300" role="img" aria-label="Six assumptions FabricPerf makes, each mapped to a gap">
+  <rect x="300" y="110" width="260" height="80" rx="10" class="box-acc"/>
+  <text x="430" y="140" text-anchor="middle" class="head">FabricPerf's model</text>
+  <text x="430" y="158" text-anchor="middle" class="small">fence-delimited stores + flag, poll at receiver,</text>
+  <text x="430" y="172" text-anchor="middle" class="small">GPTP offsets, fabric traffic = memory traffic</text>
+  <g>
+    <rect x="20" y="20" width="240" height="56" rx="8" class="box-warn"/>
+    <text x="30" y="40" class="head">1 · A "packet" exists</text>
+    <text x="30" y="58" class="small">st / TMA / multicast / CE / atomic / LL128</text>
+    <rect x="20" y="122" width="240" height="56" rx="8" class="box-warn"/>
+    <text x="30" y="142" class="head">2 · Both ends run code</text>
+    <text x="30" y="160" class="small">one-sided: arrival is a state change, not an event</text>
+    <rect x="20" y="224" width="240" height="56" rx="8" class="box-warn"/>
+    <text x="30" y="244" class="head">3 · Fence = "entered fabric"</text>
+    <text x="30" y="262" class="small">it is a drain: perturbs, and encodes queue depth</text>
+    <rect x="600" y="20" width="240" height="56" rx="8" class="box-warn"/>
+    <text x="610" y="40" class="head">4 · Only stores matter</text>
+    <text x="610" y="58" class="small">get 141 vs put 313 GB/s; atomics = address incast</text>
+    <rect x="600" y="122" width="240" height="56" rx="8" class="box-warn"/>
+    <text x="610" y="142" class="head">5 · The switch is a wire</text>
+    <text x="610" y="160" class="small">multimem.st: 1 send → N arrivals; in-switch reduce</text>
+    <rect x="600" y="224" width="240" height="56" rx="8" class="box-warn"/>
+    <text x="610" y="244" class="head">6 · Comm kernel is separable</text>
+    <text x="610" y="262" class="small">inlined device API, fused kernels, copy engine</text>
+  </g>
+  <path d="M260 48 L300 120" class="ln-mut"/><path d="M260 150 L300 150" class="ln-mut"/><path d="M260 252 L300 180" class="ln-mut"/>
+  <path d="M600 48 L560 120" class="ln-mut"/><path d="M600 150 L560 150" class="ln-mut"/><path d="M600 252 L560 180" class="ln-mut"/>
+</svg>
+<figcaption>Each assumption becomes one or more research gaps in section 2.</figcaption>
+</figure>
+
+<h2 id="s1">1. What FabricPerf actually measures</h2>
+<p><b>Observation unit.</b> One fence-delimited run of stores from one thread block (a "channel") followed by a control-plane write (the "tailer"). The paper concedes these are KB to MB units; the "128-bit MTU" is the store width, not a packet size.</p>
+<p><b>Timestamps.</b> Five per unit, on two GPUs, aligned by GPTP. Probes attach at the SASS level (Neutrino) to three landmarks: the <code>fence</code>, the poll-loop branch, and the first <code>st</code>.</p>
+
+<figure>
+<svg viewBox="0 0 860 250" role="img" aria-label="FabricPerf T1 to T5 timeline across sender and receiver GPUs">
+  <defs>
+    <marker id="a" markerWidth="8" markerHeight="8" refX="6" refY="4" orient="auto"><path d="M0 0 L8 4 L0 8 z" class="fill-acc"/></marker>
+    <marker id="w" markerWidth="8" markerHeight="8" refX="6" refY="4" orient="auto"><path d="M0 0 L8 4 L0 8 z" class="fill-warn"/></marker>
+  </defs>
+  <text x="20" y="28" class="head">Receiver GPU (clock B)</text>
+  <line x1="20" y1="40" x2="840" y2="40" class="ln"/>
+  <text x="20" y="220" class="head">Sender GPU (clock A)</text>
+  <line x1="20" y1="200" x2="840" y2="200" class="ln"/>
+  <rect x="380" y="100" width="100" height="40" rx="8" class="box"/>
+  <text x="430" y="125" text-anchor="middle" class="head">fabric</text>
+  <circle cx="90" cy="40" r="6" class="fill-acc"/><text x="90" y="62" text-anchor="middle" class="mono">T1 CLEAR</text>
+  <path d="M96 44 L200 196" class="ln-acc" marker-end="url(#a)"/>
+  <circle cx="205" cy="200" r="6" class="fill-acc"/><text x="205" y="222" text-anchor="middle" class="mono">T2 sees CLEAR</text>
+  <circle cx="290" cy="200" r="6" class="fill-acc"/><text x="290" y="222" text-anchor="middle" class="mono">T3 first st</text>
+  <circle cx="420" cy="200" r="6" class="fill-warn"/><text x="420" y="222" text-anchor="middle" class="mono">T4 fence + flag</text>
+  <path d="M296 196 L410 150" class="ln-mut"/><path d="M426 196 L640 44" class="ln-warn" marker-end="url(#w)"/>
+  <circle cx="650" cy="40" r="6" class="fill-bad"/><text x="650" y="62" text-anchor="middle" class="mono">T5 poll sees flag</text>
+  <text x="700" y="90" class="small">S5 = spin count. If S5 = 1 the flag was</text>
+  <text x="700" y="104" class="small">already there: sample discarded.</text>
+  <rect x="120" y="120" width="180" height="46" rx="8" class="box-acc"/>
+  <text x="210" y="139" text-anchor="middle" class="head">GPTP per kernel</text>
+  <text x="210" y="155" text-anchor="middle" class="small">offset only, no adjtime, symmetric delay</text>
+  <text x="560" y="150" class="small">latency := T5 − T4  (needs offset A→B)</text>
+</svg>
+<figcaption>FabricPerf's segmented latency. T1 and T5 live on the receiver's clock, T2 to T4 on the sender's; GPTP supplies the offset. T4 is a fence, T5 is a successful poll.</figcaption>
+</figure>
+
+<p><b>Clock sync.</b> Leader/follower, offset-only, re-run every kernel because inter-kernel jitter is 36 µs (intra-kernel ~100 ns); triangulation error 106 ns average, 365 ns worst; symmetric delay assumed. <b>Physical layer.</b> NCCL's staged buffers are modelled as persistent (should hit L2) versus streaming user buffers. <b>Scope exercised.</b> NCCL 2.28 ring SendRecv / AllGather / ReduceScatter on H100 NVL8 and GB200 NVL16, stores only. <b>Admitted limits.</b> No network layer, no switch, imbalance "regrettably" unattributed.</p>
+
+<h2 id="s2">2. Research gaps</h2>
+<p>Inclusion criterion: the gap must exist for <em>any</em> memory-semantic fabric. NVSHMEM is evidence and testbed. Excluded as NVSHMEM-specific: the heap allocator, teams and <code>pSync</code>, the dual host/device API, bootstrap, on-stream wrappers.</p>
+
+<h3 id="g1">Gap 1 · There is no canonical "packet" to timestamp</h3>
+<p>FabricPerf's unit exists because NCCL's protocol has one. The same <code>nvshmem_putmem</code> dispatches at run time to mechanisms with different observable events.</p>
+
+<figure>
+<svg viewBox="0 0 860 330" role="img" aria-label="One put call fans out to seven mechanisms with different send and done events">
+  <rect x="20" y="130" width="130" height="60" rx="10" class="box-acc"/>
+  <text x="85" y="155" text-anchor="middle" class="head">nvshmem_putmem</text>
+  <text x="85" y="173" text-anchor="middle" class="small">dispatch at run time</text>
+  <g class="mono">
+    <rect x="230" y="14" width="200" height="34" rx="7" class="box"/><text x="240" y="36">thread st.global</text>
+    <rect x="230" y="58" width="200" height="34" rx="7" class="box"/><text x="240" y="80">TMA cp.async.bulk</text>
+    <rect x="230" y="102" width="200" height="34" rx="7" class="box"/><text x="240" y="124">multimem.st (NVLS)</text>
+    <rect x="230" y="146" width="200" height="34" rx="7" class="box"/><text x="240" y="168">copy engine (host)</text>
+    <rect x="230" y="190" width="200" height="34" rx="7" class="box"/><text x="240" y="212">atomicAdd_system</text>
+    <rect x="230" y="234" width="200" height="34" rx="7" class="box"/><text x="240" y="256">LL / LL128 store</text>
+    <rect x="230" y="278" width="200" height="34" rx="7" class="box"/><text x="240" y="300">proxy / IBGDA → NIC</text>
+  </g>
+  <g>
+    <path d="M150 160 L230 31" class="ln-mut"/><path d="M150 160 L230 75" class="ln-mut"/><path d="M150 160 L230 119" class="ln-mut"/>
+    <path d="M150 160 L230 163" class="ln-mut"/><path d="M150 160 L230 207" class="ln-mut"/><path d="M150 160 L230 251" class="ln-mut"/><path d="M150 160 L230 295" class="ln-mut"/>
+  </g>
+  <text x="460" y="10" class="small">"send" event</text><text x="660" y="10" class="small">"done" event</text>
+  <g class="small">
+    <text x="460" y="36">the store</text><text x="660" y="36" class="fill-bad">none · quiet = threadfence only</text>
+    <text x="460" y="80">one bulk instr (1 thread)</text><text x="660" y="80" class="fill-warn">wait_group, async proxy fence</text>
+    <text x="460" y="124">one store</text><text x="660" y="124" class="fill-bad">none · N arrivals</text>
+    <text x="460" y="168">stream event</text><text x="660" y="168" class="fill-bad">no kernel to probe</text>
+    <text x="460" y="212">the atomic</text><text x="660" y="212" class="fill-ok">fetching variant returns</text>
+    <text x="460" y="256">store w/ embedded flag</text><text x="660" y="256" class="fill-ok">flag poll, no fence</text>
+    <text x="460" y="300">request in ring</text><text x="660" y="300" class="fill-ok">CPU / NIC counters</text>
+  </g>
+  <rect x="452" y="18" width="392" height="296" rx="8" fill="none" class="ln-mut"/>
+  <text x="640" y="326" text-anchor="middle" class="small">green = software-observable · orange = partial · red = unobservable</text>
+</svg>
+<figcaption>Only the fall-back paths (NIC) and LL/atomics expose a completion event. The default NVLink store path exposes nothing: <code>nvshmemi_quiet</code> is a single <code>__threadfence_system()</code> (<code>nvshmemi_common_device.cuh:1185-1212</code>).</figcaption>
+</figure>
+
+<ul>
+  <li><b>No fixed instruction landmarks.</b> LL128 has no fence, TMA has no <code>st</code>, the copy engine has no kernel, multicast has one <code>st</code> for N deliveries.</li>
+  <li><b>The unit depends on the mechanism.</b> Warp wave, bulk group, 16-byte element, or fan-out set.</li>
+  <li><b>The same call takes different mechanisms</b> depending on reachability, TMA policy, alignment and build flags.</li>
+</ul>
+<p><b>NCCL's own device API makes the same point.</b> NCCL 2.28, the version FabricPerf profiles, also ships a device API (Hamidouche et al., <a href="https://arxiv.org/abs/2511.15076">arXiv 2511.15076</a>) with three modes: <b>LSA</b> (plain loads and stores into peer windows; the application writes its own flags and fences), <b>Multimem</b> (<code>multimem.st</code> via NVLink SHARP), and <b>GIN</b> (one-sided <code>put</code> with a <code>signal</code> for remote and a <code>counter</code> for local completion; ordering comes from the signal "without requiring explicit fence operations", operations are unordered by default). FabricPerf's experiments use only the host-launched collectives, whose Simple protocol is the one realisation of "data, then ordered notification" that has a fence, a plain-store flag and a poll loop at fixed places in a known kernel. The abstract pattern survives across Simple, LL, NVSHMEM put-with-signal and GIN put-with-signal; the probe points do not.</p>
+<div class="rq"><b>Research question.</b> What is the right observation unit, and where does observation attach when the initiator is not an SM thread? A protocol-free answer: classify every memory instruction by its <em>destination virtual address</em>. Every memory-semantic fabric maps remote memory into known VA windows (NVSHMEM: <code>peer_heap_base_p2p[pe] + offset</code>; NCCL windows and UALink likewise), so "remote, and to which PE" is decidable from the address alone, for stores, TMA, multicast and atomics, inside fused kernels.</div>
+
+<h3 id="g2">Gap 2 · Arrival is not an event; the two-clock problem is a symptom</h3>
+<p>In a two-sided network the receiver NIC executes something on arrival. In a one-sided memory-semantic network, arrival is a state change in the target's L2 or HBM. No thread on the target runs.</p>
+
+<figure>
+<svg viewBox="0 0 860 260" role="img" aria-label="Three ways software can learn that a one-sided store arrived">
+  <g>
+    <rect x="20" y="20" width="260" height="220" rx="10" class="box"/>
+    <text x="150" y="44" text-anchor="middle" class="head">1 · Target poll loop (FabricPerf)</text>
+    <line x1="40" y1="70" x2="260" y2="70" class="ln"/>
+    <g class="fill-mut"><circle cx="60" cy="70" r="3"/><circle cx="100" cy="70" r="3"/><circle cx="140" cy="70" r="3"/><circle cx="180" cy="70" r="3"/><circle cx="220" cy="70" r="3"/></g>
+    <path d="M150 100 L150 74" class="ln-warn"/><text x="150" y="115" text-anchor="middle" class="small">true arrival</text>
+    <rect x="140" y="64" width="40" height="12" fill="none" class="ln-bad"/>
+    <text x="150" y="140" text-anchor="middle" class="small">resolution = poll period</text>
+    <text x="150" y="156" text-anchor="middle" class="small">(one L2 or remote load RTT)</text>
+    <text x="150" y="185" text-anchor="middle" class="small">needs 2 clocks + GPTP</text>
+    <text x="150" y="201" text-anchor="middle" class="small">fast samples (S5 = 1) discarded</text>
+    <text x="150" y="217" text-anchor="middle" class="small">no receiver code → no T5 at all</text>
+  </g>
+  <g>
+    <rect x="300" y="20" width="260" height="220" rx="10" class="box"/>
+    <text x="430" y="44" text-anchor="middle" class="head">2 · Initiator fetching op</text>
+    <text x="320" y="72" class="mono">ld / get / atomic_fetch_add</text>
+    <path d="M330 100 L520 100" class="ln-acc" marker-end="url(#a)"/>
+    <path d="M520 130 L330 130" class="ln-acc" marker-end="url(#a)"/>
+    <text x="425" y="94" text-anchor="middle" class="small">request</text>
+    <text x="425" y="146" text-anchor="middle" class="small">response (value)</text>
+    <text x="430" y="180" text-anchor="middle" class="small">one clock, round trip</text>
+    <text x="430" y="196" text-anchor="middle" class="small">folds in the return path</text>
+    <text x="430" y="217" text-anchor="middle" class="small">natural unit for reads &amp; atomics</text>
+  </g>
+  <g>
+    <rect x="580" y="20" width="260" height="220" rx="10" class="box"/>
+    <text x="710" y="44" text-anchor="middle" class="head">3 · Explicit acknowledgement</text>
+    <text x="600" y="72" class="mono">put → wait → put back</text>
+    <path d="M610 100 L800 100" class="ln-acc" marker-end="url(#a)"/>
+    <text x="705" y="94" text-anchor="middle" class="small">store + flag</text>
+    <text x="705" y="122" text-anchor="middle" class="small">target polls, notices</text>
+    <path d="M800 140 L610 140" class="ln-acc" marker-end="url(#a)"/>
+    <text x="705" y="158" text-anchor="middle" class="small">ack store</text>
+    <text x="710" y="190" text-anchor="middle" class="small">one clock, three hops</text>
+    <text x="710" y="206" text-anchor="middle" class="small">what ping-pong perftests do</text>
+  </g>
+</svg>
+<figcaption>FabricPerf uses option 1. Options 2 and 3 need no second clock but include a return path. For non-fetching stores over NVLink, no option on the initiator observes arrival: there is no completion counter to read.</figcaption>
+</figure>
+
+<p>GPTP's costs are structural: it must re-run per kernel (a persistent DeepEP-style kernel has no boundary, and ~1.5 µs/run inter-node drift accumulates); it assumes symmetric delay in the two directions, an asymmetry that in a switched, per-direction-lane fabric under load is itself a quantity to be measured; it uses the fabric under test and stalls the kernel 5 to 10 µs.</p>
+<div class="rq"><b>Research question.</b> One-sided latency without two clocks, or with sync whose error is bounded independently of asymmetry. Candidates: round-trip decomposition with fetching atomics; timestamp-carrying LL-style stores for relative latency and tails; symmetric-pair probes whose offset cancels; LL/LL128 flags as per-16-byte or per-128-byte arrival ground truth.</div>
+
+<h3 id="g3">Gap 3 · Visibility, ordering and completion differ, and the fence is a sensor</h3>
+<figure>
+<svg viewBox="0 0 860 210" role="img" aria-label="Six stages in a store's life and which of them FabricPerf's timestamps cover">
+  <g class="mono">
+    <rect x="20" y="40" width="120" height="44" rx="8" class="box-ok"/><text x="80" y="66" text-anchor="middle">issued</text>
+    <rect x="160" y="40" width="120" height="44" rx="8" class="box"/><text x="220" y="66" text-anchor="middle">left SM</text>
+    <rect x="300" y="40" width="120" height="44" rx="8" class="box-warn"/><text x="360" y="66" text-anchor="middle">ordered (fence)</text>
+    <rect x="440" y="40" width="120" height="44" rx="8" class="box"/><text x="500" y="66" text-anchor="middle">on NVLink port</text>
+    <rect x="580" y="40" width="120" height="44" rx="8" class="box"/><text x="640" y="66" text-anchor="middle">in remote L2</text>
+    <rect x="720" y="40" width="120" height="44" rx="8" class="box-bad"/><text x="780" y="66" text-anchor="middle">seen by poller</text>
+  </g>
+  <path d="M140 62 L160 62 M280 62 L300 62 M420 62 L440 62 M560 62 L580 62 M700 62 L720 62" class="ln"/>
+  <text x="80" y="104" text-anchor="middle" class="small">T3</text>
+  <text x="360" y="104" text-anchor="middle" class="small">T4 ("entered fabric")</text>
+  <text x="780" y="104" text-anchor="middle" class="small">T5</text>
+  <text x="220" y="104" text-anchor="middle" class="small">—</text><text x="500" y="104" text-anchor="middle" class="small">—</text><text x="640" y="104" text-anchor="middle" class="small">—</text>
+  <rect x="300" y="128" width="540" height="64" rx="8" class="box-acc"/>
+  <text x="312" y="150" class="head">fence.sys is a drain + order, not an instant</text>
+  <text x="312" y="168" class="small">duration ∝ stores in flight ahead of it · 1.6–3.1 µs of a 5–13 µs latency · blocks later stores</text>
+  <text x="312" y="184" class="small">→ calibrated, it is a queue-occupancy sensor: the NIC-queue signal FabricPerf says was lost</text>
+</svg>
+<figcaption>Three timestamps stand in for six stages. The middle three are invisible to software; the fence both perturbs them and, via its duration, reports on them.</figcaption>
+</figure>
+<p>Flow control is also hidden: one-sided puts have no receiver credit (the target buffer always exists); back-pressure happens in store buffers and NVLink credits and surfaces only as store-instruction stalls, visible to instruction sampling but not per destination. NVSHMEM already measures the two ends of this separately in <code>shmem_nbi_issue_rate.cu</code> and <code>shmem_flush_bench.cu</code>.</p>
+<div class="rq"><b>Research question.</b> Non-perturbing completion observation: which existing side effects (fence latency, store-stall cycles, poll-iteration counts, TMA <code>wait_group</code> latency) carry information about in-flight state, and how well can they be calibrated?</div>
+
+<h3 id="g4">Gap 4 · Reads and atomics are first-class traffic with different physics</h3>
+<div class="grid2">
+  <div class="gap"><div class="k">Issuer-bound throughput</div>Bulk <code>get</code> 141 vs <code>put</code> 313 GB/s; scalar <code>g</code> 9 vs <code>p</code> 172 GB/s on H200 NVLink (Demystifying §VII.B). Each thread needs the value before its next dependent op; the metric is outstanding requests per SM, not link bandwidth.</div>
+  <div class="gap"><div class="k">Address-level incast</div>Signals are <code>atomicAdd_system</code> on one remote 8-byte word (<code>nvshmemi_signal_op</code>); DeepEP uses remote atomics for counts and credits. N senders serialise at one L2 slice. Bytes/s is the wrong metric; per-channel views cannot see it.</div>
+  <div class="gap"><div class="k">Two crossings per read</div>Request and response use opposite link directions; CUPTI NVLink byte counters cannot separate them; FabricPerf's memory model has no accounting for it.</div>
+  <div class="gap"><div class="k">FabricPerf's position</div>"ld could be simpler as all timestamps are local" (§7). Locality of timestamps is the easy part.</div>
+</div>
+<div class="rq"><b>Research question.</b> Observability for request/response memory-semantic traffic: outstanding-request limits and response ordering per SM, and per-address contention for atomics.</div>
+
+<h3 id="g5">Gap 5 · In-fabric operations: one send, N arrivals, a switch with no clock</h3>
+<figure>
+<svg viewBox="0 0 860 220" role="img" aria-label="A multicast store fans out in the switch to N receivers with arrival skew">
+  <rect x="20" y="80" width="130" height="50" rx="8" class="box-acc"/><text x="85" y="101" text-anchor="middle" class="head">sender</text><text x="85" y="118" text-anchor="middle" class="mono">multimem.st ×1</text>
+  <rect x="300" y="60" width="150" height="90" rx="10" class="box-warn"/><text x="375" y="90" text-anchor="middle" class="head">NVSwitch</text><text x="375" y="108" text-anchor="middle" class="small">replicate / reduce</text><text x="375" y="124" text-anchor="middle" class="small">no clock, no probe</text>
+  <path d="M150 105 L300 105" class="ln-acc" marker-end="url(#a)"/>
+  <g class="mono">
+    <rect x="620" y="14" width="110" height="34" rx="7" class="box"/><text x="675" y="36" text-anchor="middle">GPU 1</text>
+    <rect x="620" y="62" width="110" height="34" rx="7" class="box"/><text x="675" y="84" text-anchor="middle">GPU 2</text>
+    <rect x="620" y="110" width="110" height="34" rx="7" class="box"/><text x="675" y="132" text-anchor="middle">GPU 3</text>
+    <rect x="620" y="158" width="110" height="34" rx="7" class="box"/><text x="675" y="180" text-anchor="middle">GPU N</text>
+  </g>
+  <path d="M450 90 L620 31" class="ln-warn" marker-end="url(#w)"/><path d="M450 100 L620 79" class="ln-warn" marker-end="url(#w)"/>
+  <path d="M450 110 L620 127" class="ln-warn" marker-end="url(#w)"/><path d="M450 120 L620 175" class="ln-warn" marker-end="url(#w)"/>
+  <g class="small"><text x="745" y="36">t₁</text><text x="745" y="84">t₂</text><text x="745" y="132">t₃</text><text x="745" y="180">t_N  ← arrival skew</text></g>
+  <text x="85" y="160" text-anchor="middle" class="small">sender memory traffic: 16 B</text>
+  <text x="375" y="180" text-anchor="middle" class="small">switch egress: N × 16 B</text>
+  <text x="375" y="196" text-anchor="middle" class="small">"fabric traffic = memory traffic" off by N</text>
+</svg>
+<figcaption>NVLink SHARP: <code>multimem.st</code> and <code>multimem.ld_reduce</code> (<code>coll/reduce.cuh:148-223</code>). One timestamp, N arrivals on N clocks, an actor with no probe point, and an unclear meaning of "done".</figcaption>
+</figure>
+<div class="rq"><b>Research question.</b> Fan-out skew, reduction latency versus participant count and type, and completion semantics. Needs N-way rather than pairwise sync, or a clock-free design based on the reduction's return value.</div>
+
+<h3 id="g6">Gap 6 · Contention is address-determined; the "channel" is not a link</h3>
+<figure>
+<svg viewBox="0 0 860 200" role="img" aria-label="Path of a store through address-hashed contention points">
+  <g class="mono">
+    <rect x="20" y="60" width="80" height="40" rx="7" class="box"/><text x="60" y="84" text-anchor="middle">SM</text>
+    <rect x="130" y="60" width="80" height="40" rx="7" class="box"/><text x="170" y="84" text-anchor="middle">XBAR</text>
+    <rect x="240" y="60" width="90" height="40" rx="7" class="box-warn"/><text x="285" y="84" text-anchor="middle">L2 slice</text>
+    <rect x="360" y="60" width="90" height="40" rx="7" class="box-warn"/><text x="405" y="84" text-anchor="middle">NVLink port</text>
+    <rect x="480" y="60" width="80" height="40" rx="7" class="box"/><text x="520" y="84" text-anchor="middle">switch</text>
+    <rect x="590" y="60" width="110" height="40" rx="7" class="box-warn"/><text x="645" y="84" text-anchor="middle">remote L2 slice</text>
+    <rect x="730" y="60" width="110" height="40" rx="7" class="box-warn"/><text x="785" y="84" text-anchor="middle">HBM channel</text>
+  </g>
+  <path d="M100 80 L130 80 M210 80 L240 80 M330 80 L360 80 M450 80 L480 80 M560 80 L590 80 M700 80 L730 80" class="ln"/>
+  <g class="small">
+    <text x="285" y="122" text-anchor="middle">hash(addr)</text><text x="405" y="122" text-anchor="middle">hash(addr)</text>
+    <text x="645" y="122" text-anchor="middle">hash(addr)</text><text x="785" y="122" text-anchor="middle">hash(addr)</text>
+  </g>
+  <rect x="130" y="140" width="200" height="40" rx="8" class="box-bad"/>
+  <text x="230" y="158" text-anchor="middle" class="small">shared with local compute traffic</text>
+  <text x="230" y="172" text-anchor="middle" class="small">(GEMM reads evict comm buffers)</text>
+  <text x="600" y="160" class="small">peer VA window fixed at init →</text>
+  <text x="600" y="176" class="small">same buffer always takes the same ports</text>
+</svg>
+<figcaption>Every orange stage is selected by address, not by "channel". FabricPerf's LLC finding is one instance of this; its channel imbalance is likely another, and it cannot attribute it.</figcaption>
+</figure>
+<p><b>The L1 is missing from the model, and "bypass" is asserted, not measured.</b> Table 2 marks L1 as bypassed for every collective because network data is external to the core; no L1 counter is reported, and the XBAR metric used is by definition the L1's miss output. Receive-side loads do bypass L1, but for coherence, not locality: L1 is not coherent with remote writes, so loads of a remotely written buffer must be volatile, relaxed/acquire at gpu or system scope, or follow an acquire fence. NVSHMEM's LL receives use <code>ld.volatile.global</code> (<code>nvshmemi_common_device.cuh:1910</code>) and its wait loops read through <code>volatile</code> pointers; NCCL does the same. That rule forces every poll iteration to L2 and sets the poll period behind Gap 2. Local source reads are ordinary cached loads that merely stream once. Stores are write-through, so the L1-side effect that matters is the load/store unit's coalescing of per-thread 16-byte stores into the sector transactions that enter the crossbar and NVLink, where the fabric's real packetisation is decided. TMA and multicast skip L1 via the async proxy for unrelated reasons. The SM-side structures the model omits (outstanding loads, store queue depth, MIO queues) are exactly what makes <code>get</code> issuer-bound and what a fence drains, so Gaps 3 and 4 cannot be expressed in an L2-plus-DRAM model. The unexplained 15% error on ReduceScatter's read flow, the one flow mixing a local and a network operand, is consistent with this omission.</p>
+<div class="rq"><b>Research question.</b> Attributing traffic to physical paths (L2 slice, port, switch plane) from software-visible addresses via controlled address sweeps correlated with per-link NVML/CUPTI counters, and quantifying compute/communication interference in the shared memory pipeline. The latter is the promise of device-initiated communication, and nothing measures its cost to the communication side.</div>
+
+<h3 id="g7">Gap 7 · Reachability tiers, silent fall-backs and degraded paths</h3>
+<ul>
+  <li>The path is decided per peer at init: P2P-mapped, else proxy or IBGDA over a NIC (Demystifying §V.A). On Beta the IMEX channel is broken, so <code>NVSHMEM_DISABLE_MNNVL=1</code> routes cross-node traffic over InfiniBand although the NVLink rack exists (<code>mem_heap.cpp:133-139</code>).</li>
+  <li>GB200 NVL72 is two-level (4-GPU tray, then switch trays); nothing tells whether a pair traverses one or two switch chips.</li>
+  <li>NVLink is lossless via CRC and replay; FabricPerf discounts loss. Replays and lane degradation appear as unattributed tails; NVML has per-link counters, nothing per kernel or destination.</li>
+</ul>
+<div class="rq"><b>Research question.</b> Per-operation path attribution and detection of degraded reachability, so tails are attributed to routes rather than averaged into "channel imbalance".</div>
+
+<h3 id="g8">Gaps 8 to 11 · Cost, SIMT aggregation, fusion, zero-copy</h3>
+<div class="grid2">
+  <div class="gap"><div class="k"><span>8</span>Observation cost and sampling</div>Latencies 1–10 µs; a store tens of ns; a probe 20 ns (SMEM) or 200 ns (GMEM). Finer units cost proportionally more; online mode is already 9%. Missing: a sampling theory for "one packet in 100" when a packet is 1024 threads, and passive observation reusing existing side effects (<code>%globaltimer</code> reads in wait loops, proxy counters, TMA completion, fence duration).</div>
+  <div class="gap"><div class="k"><span>9</span>Whose timestamp is the packet's?</div>A "flow" is 32 lanes × hundreds of warps × dozens of blocks; the memory system splits and merges stores; fence scope (<code>cta</code>/<code>gpu</code>/<code>sys</code>) and the TMA async proxy change what is ordered. FabricPerf timestamps once per block from one polling thread, implicitly defining arrival as "last byte visible to one thread". First, median or last is undecided: the load/store analogue of packet latency versus flow completion time.</div>
+  <div class="gap"><div class="k"><span>10</span>The communication layer is inlined</div>NVSHMEM device APIs are header templates inlined into user kernels; DeepEP calls internal helpers directly; fused GEMM + all-gather kernels issue stores mid-loop; host paths use copy engines with no kernel. There is no fixed kernel to probe. A general tool must classify memory instructions by what they touch (Gap 1) or have memory-system hardware support.</div>
+  <div class="gap"><div class="k"><span>11</span>Zero-copy has no receiver-side event</div><code>put</code> writes straight into the destination symmetric buffer (NCCL user-buffer registration likewise). No intermediate buffer, no per-packet receiver copy, only a final flag. Packet rate at the receiver is unobservable in software, and FabricPerf's LLC model (persistent network buffer) does not apply.</div>
+</div>
+
+<h2 id="s3">3. Where this points</h2>
+<div class="card">
+  <p><b>A · Clock-free or asymmetry-aware one-sided latency</b> (gaps 2, 3, 5). Fetching-atomic round-trip decomposition; timestamp-carrying LL-style stores; symmetric-pair probes that cancel offset; fence and TMA <code>wait_group</code> latency as calibrated completion sensors; N-way skew for multicast. Evaluate precision without GPTP and degradation under load asymmetry, which GPTP cannot even detect.</p>
+  <p><b>B · Address-based, protocol-agnostic traffic classification</b> (gaps 1, 4, 6, 7, 10). Instrument memory instructions by destination VA window (NVBit, Neutrino, or compiler-inserted). Uniform over stores, loads, atomics, multicast and TMA; works inside fused kernels; per-destination and per-slice statistics correlate with per-link counters to recover path attribution. This is what makes "imbalance, cause unknown" answerable.</p>
+  <p><b>C · Interference and completion inside the shared memory pipeline</b> (gaps 3, 6, 8, 9, 11). The research object is the store's life in the memory system, not "the network"; metrics are occupancy, stall attribution and completion distributions, measured through side effects rather than probes.</p>
+  <p style="margin:0"><b>Not this:</b> re-implementing T1 to T5 on NVSHMEM's put/wait. That inherits every assumption above and adds only a different protocol.</p>
+</div>
+
+<h2 id="s4">4. NVSHMEM hooks that make the gaps concrete on Beta</h2>
+<table>
+<thead><tr><th>Gap</th><th>Where in the source</th><th>What to do with it</th></tr></thead>
+<tbody>
+<tr><td>1, 10</td><td><code>nvshmemi_common_device.cuh:1444-1472</code>; <code>data-movement-paths.md</code></td><td>Force each mechanism (<code>NVSHMEM_TMA_POLICY</code>, NVLS via collectives, copy engine via host API, proxy via <code>NVSHMEM_DISABLE_MNNVL</code>) and record which observable events exist</td></tr>
+<tr><td>2</td><td><code>perftest/device/pt-to-pt/shmem_put_ping_pong_latency.cu</code>, <code>shmem_atomic_ping_pong_latency.cu</code>, <code>shmem_p_ping_pong_latency.cu</code></td><td>Baseline one-clock round trips; decompose with fetching atomics</td></tr>
+<tr><td>2, 8</td><td><code>wait/nvshmemi_wait_until_apis.cuh:25-60</code></td><td>Poll-loop structure and existing <code>%globaltimer</code> reads; measure poll-period resolution</td></tr>
+<tr><td>3</td><td><code>nvshmemi_quiet</code>/<code>nvshmemi_flush</code> at <code>:1185-1275</code>; <code>shmem_flush_bench.cu</code>, <code>shmem_nbi_issue_rate.cu</code></td><td>Fence latency versus outstanding stores; calibrate as an occupancy sensor</td></tr>
+<tr><td>3, 7</td><td><code>pt-to-pt/proxy_device.cuh:50-130</code></td><td>The only path with software completion counters; contrast with the counter-less NVLink path</td></tr>
+<tr><td>4</td><td><code>shmem_get_bw.cu</code>, <code>shmem_g_bw.cu</code>, <code>shmem_atomic_bw.cu</code>; <code>nvshmemi_signal_op</code></td><td>Outstanding-request limits; atomic incast on one signal address from many senders</td></tr>
+<tr><td>5</td><td><code>coll/reduce.cuh:148-223</code>, <code>fcollect.cuh</code> NVLS paths; <code>NVSHMEM_DISABLE_NVLS</code></td><td>Fan-out skew and reduction latency versus team size</td></tr>
+<tr><td>6</td><td><code>peer_heap_base_p2p</code> layout; NVML per-link counters</td><td>Address sweep to recover address-to-link mapping; co-run a GEMM to measure interference</td></tr>
+<tr><td>7</td><td><code>mem_heap.cpp:133-139</code>; <code>NVSHMEM_DISABLE_MNNVL</code></td><td>Same put over NVLink versus IB fall-back; how invisible the switch is to the application</td></tr>
+<tr><td>2, 11</td><td><code>coll/fcollect.cuh:141-284</code> (LL128 pack/recv)</td><td>LL flags as fine-grained arrival ground truth</td></tr>
+</tbody>
+</table>
+<div class="callout">Beta constraints: MNNVL is off on the tested nodes until the IMEX fix; FabricPerf's own CUPTI runs hung on inter-node LLC metrics, expect the same on NVL72; the login node has no GPU, so everything runs in the container on a compute node.</div>
+
+<h2 id="s5">5. One-page comparison</h2>
+<table>
+<thead><tr><th>Feature of memory-semantic fabrics</th><th>FabricPerf</th><th>Why it is general (NVSHMEM evidence)</th></tr></thead>
+<tbody>
+<tr><td>Multiple mechanisms per call (st, TMA, multicast, CE, atomics, LL)</td><td><span class="tag bad">one</span> fence-delimited st</td><td>dispatch in <code>nvshmemii_put_nbi</code>; LL128 in collectives; NVLS in reduce/fcollect</td></tr>
+<tr><td>One-sided arrival with no target-side code</td><td><span class="tag warn">poll + GPTP</span> fast samples discarded</td><td><code>put</code> with no <code>wait</code>; <code>get</code>; <code>quiet</code> is a fence only</td></tr>
+<tr><td>Clock sync under path asymmetry</td><td><span class="tag bad">assumed symmetric</span></td><td>per-direction lanes in a switched fabric; unmeasured</td></tr>
+<tr><td>Persistent / fused kernels</td><td><span class="tag bad">resync per kernel</span></td><td>DeepEP, megakernels, inlined device API</td></tr>
+<tr><td>Fence as drain + ordering</td><td><span class="tag warn">treated as instant</span></td><td>1/3 of latency; <code>flush_bench</code>, <code>nbi_issue_rate</code></td></tr>
+<tr><td>Hardware flow control invisible</td><td><span class="tag warn">protocol CLEAR credit</span></td><td>no receiver credit on one-sided put</td></tr>
+<tr><td>Read / atomic traffic</td><td><span class="tag bad">not measured</span></td><td>get 141 vs put 313 GB/s; g 9 vs p 172 GB/s; signals are remote atomics</td></tr>
+<tr><td>Multicast and in-switch reduction</td><td><span class="tag bad">not measured</span> model assumes 1:1</td><td><code>multimem.st</code>, <code>multimem.ld_reduce</code></td></tr>
+<tr><td>Address-hashed contention, compute/comm interference</td><td><span class="tag warn">LLC only</span> imbalance unattributed</td><td>fixed VA window per peer; shared L2/XBAR</td></tr>
+<tr><td>Silent fall-backs, multi-hop, link replay</td><td><span class="tag bad">flat domain</span> loss ignored</td><td>MNNVL off on Beta → IB; NVL72 two-level; NVML replay counters</td></tr>
+<tr><td>Zero-copy delivery</td><td><span class="tag bad">needs network buffer</span></td><td><code>put</code> writes into destination symmetric buffer</td></tr>
+<tr><td>SIMT aggregation (whose timestamp?)</td><td><span class="tag warn">one thread per block</span></td><td>warp waves, fence scopes, async proxy</td></tr>
+</tbody>
+</table>
+
+<p class="meta">Analysis from reading both papers in full and tracing the cited NVSHMEM paths on 2026-09-29. Performance numbers are quoted from the papers, not measured here. Companion notes: data-movement-paths.md, dev-guide-ring-fabric-handle-error.md.</p>
+</div></main>
+</div>
+</body>
+</html>
