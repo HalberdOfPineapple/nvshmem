@@ -16,7 +16,11 @@ if(NVSHMEM_SHMEM_SUPPORT)
 endif()
 
 if(NVSHMEM_MPI_SUPPORT)
-   target_compile_definitions(nvshmem_perftest_helper PUBLIC NVSHMEMTEST_MPI_SUPPORT)
+   # MPI is loaded at runtime via dlopen (see utils.cu), so mpi.h is only used
+   # for types. Skip the legacy C++ bindings that Open MPI < 5 and MPICH pull in
+   # from mpi.h, otherwise the perftests reference libmpi_cxx symbols they never link.
+   target_compile_definitions(nvshmem_perftest_helper PUBLIC NVSHMEMTEST_MPI_SUPPORT
+                              OMPI_SKIP_MPICXX MPICH_SKIP_MPICXX)
    target_include_directories(nvshmem_perftest_helper PUBLIC "$<BUILD_INTERFACE:${MPI_CXX_INCLUDE_DIRS}>")
 endif()
 
